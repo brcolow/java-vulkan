@@ -1,0 +1,7 @@
+.idea/
+*.iml
+.build/
+*.class
+target/
+com/
+!src/main/java/com
