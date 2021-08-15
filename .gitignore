@@ -5,3 +5,6 @@
 target/
 com/
 !src/main/java/com
+src/main/java/com/brcolow/vulkan/vulkan_h*
+src/main/java/com/brcolow/vulkan/C.java
+src/main/java/com/brcolow/vulkan/RuntimeHelper.java
