@@ -29,6 +29,7 @@ public class Vulkan {
             VkInstanceCreateInfo.sType$set(instanceCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO());
             VkInstanceCreateInfo.pApplicationInfo$set(instanceCreateInfo, appInfo.address());
 
+            System.out.println("module: " + Vulkan.class.getModule());
             var vkInstance= scope.allocate(C_POINTER);
             int res = vulkan_h.vkCreateInstance(appInfo.address(), MemoryAddress.NULL, vkInstance.address());
         }
