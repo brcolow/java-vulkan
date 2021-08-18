@@ -29,11 +29,11 @@
                     <arguments>
                         <argument>--add-modules</argument>
                         <argument>jdk.incubator.foreign</argument>
+                        <argument>--enable-native-access=com.brcolow.vulkan</argument>
                         <argument>--module-path</argument>
                         <modulepath/>
                         <argument>--module</argument>
                         <argument>com.brcolow.vulkan/com.brcolow.vulkan.Vulkan</argument>
-                        <argument>--enable-native-access=com.brcolow.vulkan</argument>
                     </arguments>
                 </configuration>
             </plugin>

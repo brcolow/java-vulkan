@@ -6,6 +6,7 @@ import jdk.incubator.foreign.MemoryLayout;
 import jdk.incubator.foreign.MemorySegment;
 import jdk.incubator.foreign.ResourceScope;
 import jdk.incubator.foreign.SegmentAllocator;
+import jdk.incubator.foreign.SymbolLookup;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.VarHandle;
@@ -16,22 +17,23 @@ import static jdk.incubator.foreign.CLinker.C_POINTER;
 // https://github.com/ShabbyX/vktut/blob/master/tut1/tut1.c
 public class Vulkan {
     public static void main(String[] args) {
+        System.loadLibrary("vulkan-1");
         try (NativeScope scope = new NativeScope()) {
-            MemorySegment appInfo = VkApplicationInfo.allocate(scope);
-            VkApplicationInfo.sType$set(appInfo, vulkan_h.VK_STRUCTURE_TYPE_APPLICATION_INFO());
-            VkApplicationInfo.pApplicationName$set(appInfo, CLinker.toCString("Java Vulkan App", StandardCharsets.UTF_8, scope).address());
-            VkApplicationInfo.applicationVersion$set(appInfo, 0x010000);
-            VkApplicationInfo.pEngineName$set(appInfo, CLinker.toCString("Java Vulkan", StandardCharsets.UTF_8, scope).address());
-            VkApplicationInfo.engineVersion$set(appInfo, 0x010000);
-            VkApplicationInfo.apiVersion$set(appInfo, vulkan_h.VK_API_VERSION_1_0());
+            MemorySegment pAppInfo = VkApplicationInfo.allocate(scope);
+            VkApplicationInfo.sType$set(pAppInfo, vulkan_h.VK_STRUCTURE_TYPE_APPLICATION_INFO());
+            VkApplicationInfo.pApplicationName$set(pAppInfo, CLinker.toCString("Java Vulkan App", StandardCharsets.UTF_8, scope).address());
+            VkApplicationInfo.applicationVersion$set(pAppInfo, 0x010000);
+            VkApplicationInfo.pEngineName$set(pAppInfo, CLinker.toCString("Java Vulkan", StandardCharsets.UTF_8, scope).address());
+            VkApplicationInfo.engineVersion$set(pAppInfo, 0x010000);
+            VkApplicationInfo.apiVersion$set(pAppInfo, vulkan_h.VK_API_VERSION_1_0());
 
-            MemorySegment instanceCreateInfo = VkInstanceCreateInfo.allocate(scope);
-            VkInstanceCreateInfo.sType$set(instanceCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO());
-            VkInstanceCreateInfo.pApplicationInfo$set(instanceCreateInfo, appInfo.address());
+            MemorySegment pInstanceCreateInfo = VkInstanceCreateInfo.allocate(scope);
+            VkInstanceCreateInfo.sType$set(pInstanceCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO());
+            VkInstanceCreateInfo.pApplicationInfo$set(pInstanceCreateInfo, pAppInfo.address());
 
-            System.out.println("module: " + Vulkan.class.getModule());
-            var vkInstance= scope.allocate(C_POINTER);
-            int res = vulkan_h.vkCreateInstance(appInfo.address(), MemoryAddress.NULL, vkInstance.address());
+            var pVkInstance= scope.allocate(8);
+            int res = vulkan_h.vkCreateInstance(pInstanceCreateInfo.address(), MemoryAddress.NULL, pVkInstance.address());
+            System.out.println("vkCreateInstance res: " + res);
         }
     }
     public static class NativeScope implements SegmentAllocator, AutoCloseable {
