@@ -12,6 +12,7 @@ import jdk.incubator.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.VarHandle;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 import static jdk.incubator.foreign.CLinker.C_INT;
 import static jdk.incubator.foreign.CLinker.C_POINTER;
@@ -34,18 +35,35 @@ public class Vulkan {
             VkInstanceCreateInfo.pApplicationInfo$set(pInstanceCreateInfo, pAppInfo.address());
 
             // VKInstance is an opaque pointer defined by VK_DEFINE_HANDLE macro - so it has 64-bit size on a 64-bit system.
-            var pVkInstance = scope.allocate(8);
+            var pVkInstance = scope.allocate(C_POINTER.byteSize());
             int res = vulkan_h.vkCreateInstance(pInstanceCreateInfo.address(), MemoryAddress.NULL, pVkInstance.address());
             System.out.println("vkCreateInstance res: " + resultCodeToResultEnum(res));
+
+            MemorySegment pPropertyCount = scope.allocate(C_INT, -1);
+            vulkan_h.vkEnumerateInstanceLayerProperties(pPropertyCount.address(), MemoryAddress.NULL);
+            System.out.println("property count: " + Arrays.toString(pPropertyCount.toByteArray()));
+            System.out.println("property count: " + MemoryAccess.getInt(pPropertyCount));
 
             int maxDevices = 3;
             // VkPhysicalDevice is an opaque pointer defined by VK_DEFINE_HANDLE macro - so it has 64-bit size on a
             // 64-bit system (thus an array of them has size 8 bytes * num max devices).
-            MemorySegment pPhysicalDevices = scope.allocate(8 * maxDevices);
+            MemorySegment pPhysicalDevices = scope.allocate(C_POINTER.byteSize() * maxDevices);
             MemorySegment pPhysicalDeviceCount = scope.allocate(C_INT, maxDevices);
-            // Getting VK_ERROR_INITIALIZATION_FAILED - trying to turn pVkInstance (VkInstance*) to vkInstance (VkInstance).
-            res = vulkan_h.vkEnumeratePhysicalDevices(pVkInstance.address().asSegment(8, scope.resourceScope).address(), pPhysicalDeviceCount.address(), pPhysicalDevices.address());
+            res = vulkan_h.vkEnumeratePhysicalDevices(MemoryAccess.getAddress(pVkInstance), pPhysicalDeviceCount.address(), pPhysicalDevices.address());
             System.out.println("vkEnumeratePhysicalDevices res: " + resultCodeToResultEnum(res));
+
+            System.out.println("physical device count: " + MemoryAccess.getInt(pPhysicalDeviceCount));
+            
+            for (int i = 0; i < MemoryAccess.getInt(pPhysicalDeviceCount); i++) {
+                var pProperties = VkPhysicalDeviceProperties.allocate(scope);
+                vulkan_h.vkGetPhysicalDeviceProperties(MemoryAccess.getAddressAtIndex(pPhysicalDevices, i), pProperties);
+
+                System.out.println("apiVersion: " + VkPhysicalDeviceProperties.apiVersion$get(pProperties));
+                System.out.println("driverVersion: " + VkPhysicalDeviceProperties.driverVersion$get(pProperties));
+                System.out.println("vendorID: " + VkPhysicalDeviceProperties.vendorID$get(pProperties));
+                System.out.println("deviceID: " + VkPhysicalDeviceProperties.deviceID$get(pProperties));
+                System.out.println("deviceName: " + CLinker.toJavaString(VkPhysicalDeviceProperties.deviceName$slice(pProperties)));
+            }
         }
     }
 
