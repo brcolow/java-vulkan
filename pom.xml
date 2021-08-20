@@ -34,7 +34,7 @@
                         <argument>--module-path</argument>
                         <modulepath/>
                         <argument>--module</argument>
-                        <argument>com.brcolow.vulkan/com.brcolow.vulkan.Vulkan</argument>
+                        <argument>com.brcolow.vulkan/com.brcolow.game.Vulkan</argument>
                     </arguments>
                 </configuration>
             </plugin>

@@ -7,6 +7,7 @@ import com.brcolow.vulkanapi.VkPhysicalDeviceMemoryProperties;
 import com.brcolow.vulkanapi.VkPhysicalDeviceProperties;
 import com.brcolow.vulkanapi.VkQueueFamilyProperties;
 import com.brcolow.vulkanapi.vulkan_h;
+import com.brcolow.winapi.MSG;
 import com.brcolow.winapi.WNDCLASSEXW;
 import com.brcolow.winapi.Windows_h;
 import jdk.incubator.foreign.CLinker;
@@ -31,10 +32,9 @@ public class Vulkan {
 
     public static void main(String[] args) {
         System.loadLibrary("user32");
+        System.loadLibrary("kernel32");
         System.loadLibrary("vulkan-1");
-        try (NativeScope scope = new NativeScope()) {
-            createWin32Window(scope);
-
+        try (ResourceScope scope = ResourceScope.newConfinedScope()) {
             MemorySegment pAppInfo = VkApplicationInfo.allocate(scope);
             VkApplicationInfo.sType$set(pAppInfo, vulkan_h.VK_STRUCTURE_TYPE_APPLICATION_INFO());
             VkApplicationInfo.pApplicationName$set(pAppInfo, CLinker.toCString("Java Vulkan App", StandardCharsets.UTF_8, scope).address());
@@ -48,11 +48,11 @@ public class Vulkan {
             VkInstanceCreateInfo.pApplicationInfo$set(pInstanceCreateInfo, pAppInfo.address());
 
             // VKInstance is an opaque pointer defined by VK_DEFINE_HANDLE macro - so it has 64-bit size on a 64-bit system.
-            var pVkInstance = scope.allocate(C_POINTER.byteSize());
+            var pVkInstance = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
             int res = vulkan_h.vkCreateInstance(pInstanceCreateInfo.address(), MemoryAddress.NULL, pVkInstance.address());
             System.out.println("vkCreateInstance res: " + VkResult(res));
 
-            MemorySegment pPropertyCount = scope.allocate(C_INT, -1);
+            MemorySegment pPropertyCount = SegmentAllocator.ofScope(scope).allocate(C_INT, -1);
             vulkan_h.vkEnumerateInstanceLayerProperties(pPropertyCount.address(), MemoryAddress.NULL);
             System.out.println("property count: " + Arrays.toString(pPropertyCount.toByteArray()));
             System.out.println("property count: " + MemoryAccess.getInt(pPropertyCount));
@@ -60,8 +60,8 @@ public class Vulkan {
             int maxDevices = 3;
             // VkPhysicalDevice is an opaque pointer defined by VK_DEFINE_HANDLE macro - so it has 64-bit size on a
             // 64-bit system (thus an array of them has size 8 bytes * num max devices).
-            MemorySegment pPhysicalDevices = scope.allocate(C_POINTER.byteSize() * maxDevices);
-            MemorySegment pPhysicalDeviceCount = scope.allocate(C_INT, maxDevices);
+            MemorySegment pPhysicalDevices = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize() * maxDevices);
+            MemorySegment pPhysicalDeviceCount = SegmentAllocator.ofScope(scope).allocate(C_INT, maxDevices);
             res = vulkan_h.vkEnumeratePhysicalDevices(MemoryAccess.getAddress(pVkInstance), pPhysicalDeviceCount.address(), pPhysicalDevices.address());
             System.out.println("vkEnumeratePhysicalDevices res: " + VkResult(res));
 
@@ -87,38 +87,58 @@ public class Vulkan {
                 System.out.println("memoryTypeCount: " + VkPhysicalDeviceMemoryProperties.memoryTypeCount$get(pMemoryProperties));
                 System.out.println("memoryHeapCount: " + VkPhysicalDeviceMemoryProperties.memoryHeapCount$get(pMemoryProperties));
 
-                MemorySegment pQueueFamilyPropertyCount = scope.allocate(C_INT, -1);
+                MemorySegment pQueueFamilyPropertyCount = SegmentAllocator.ofScope(scope).allocate(C_INT, -1);
                 vulkan_h.vkGetPhysicalDeviceQueueFamilyProperties(MemoryAccess.getAddressAtIndex(pPhysicalDevices, i), pQueueFamilyPropertyCount, MemoryAddress.NULL);
                 System.out.println("pQueueFamilyPropertyCount: " + MemoryAccess.getInt(pQueueFamilyPropertyCount));
 
-                MemorySegment pQueueFamilyProperties = scope.allocate(C_POINTER.byteSize() * MemoryAccess.getInt(pQueueFamilyPropertyCount));
+                MemorySegment pQueueFamilyProperties = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize() * MemoryAccess.getInt(pQueueFamilyPropertyCount));
                 vulkan_h.vkGetPhysicalDeviceQueueFamilyProperties(MemoryAccess.getAddressAtIndex(pPhysicalDevices, i), pQueueFamilyPropertyCount, pQueueFamilyProperties);
                 System.out.println("queueCount: " + VkQueueFamilyProperties.queueCount$get(pQueueFamilyProperties));
+            }
+
+            createWin32Window(scope);
+
+            MemorySegment pMsg = MSG.allocate(scope);
+            int getMessageRet;
+            while ((getMessageRet = Windows_h.GetMessageW(pMsg.address(), MemoryAddress.NULL, 0, 0)) != 0) {
+                if (getMessageRet == -1) {
+                    // handle the error and possibly exit
+                } else {
+                    Windows_h.TranslateMessage(pMsg.address());
+                    Windows_h.DispatchMessageW(pMsg.address());
+                }
             }
         }
     }
 
-    private static void createWin32Window(NativeScope scope) {
+    private static void createWin32Window(ResourceScope scope) {
         MemorySegment pWindowClass = WNDCLASSEXW.allocate(scope);
         WNDCLASSEXW.cbSize$set(pWindowClass, (int) WNDCLASSEXW.sizeof());
         WNDCLASSEXW.style$set(pWindowClass, Windows_h.CS_HREDRAW() | Windows_h.CS_VREDRAW());
         WNDCLASSEXW.hInstance$set(pWindowClass, MemoryAddress.NULL);
         WNDCLASSEXW.hCursor$set(pWindowClass, Windows_h.LoadCursorW(MemoryAddress.NULL, Windows_h.IDC_ARROW()));
+        MemoryAddress windowName = CLinker.toCString("JavaVulkanWin", StandardCharsets.UTF_16LE, scope).address();
+        WNDCLASSEXW.lpszClassName$set(pWindowClass, windowName);
+        WNDCLASSEXW.cbClsExtra$set(pWindowClass, 0);
+        WNDCLASSEXW.cbWndExtra$set(pWindowClass, 0);
 
-        MethodHandle winProcHandle;
+        MethodHandle winProcHandle = null;
         try {
             winProcHandle = MethodHandles.lookup()
-                    .findStatic(WindowProc.class, "WindowProc",
+                    .findStatic(WindowProc.class, "WindowProcFunc",
                             MethodType.methodType(long.class, MemoryAddress.class, int.class, long.class, long.class));
         } catch (NoSuchMethodException | IllegalAccessException ex) {
             ex.printStackTrace();
-            throw new RuntimeException(ex);
+            System.exit(-1);
         }
 
-        MemoryAddress winProcFunc = CLinker.getInstance().upcallStub(winProcHandle, WindowProc.WindowProc$FUNC, scope.scope());
+        if (winProcHandle == null) {
+            System.out.println("winProcHandle was null!");
+            System.exit(-1);
+        }
+
+        MemoryAddress winProcFunc = CLinker.getInstance().upcallStub(winProcHandle, WindowProc.WindowProc$FUNC, scope);
         WNDCLASSEXW.lpfnWndProc$set(pWindowClass, winProcFunc);
-        MemoryAddress windowName = CLinker.toCString("Game Window", StandardCharsets.UTF_16LE, scope).address();
-        WNDCLASSEXW.lpszClassName$set(pWindowClass, windowName);
 
         short atom = Windows_h.RegisterClassExW(pWindowClass.address());
         if (atom == 0) {
@@ -128,11 +148,12 @@ public class Vulkan {
         }
 
         hwndMain = Windows_h.CreateWindowExW(0, windowName,
-                CLinker.toCString("Game Windows", StandardCharsets.UTF_16LE, scope).address(),
+                CLinker.toCString("My Window", StandardCharsets.UTF_16LE, scope).address(),
                 Windows_h.WS_OVERLAPPEDWINDOW(), Windows_h.CW_USEDEFAULT(), Windows_h.CW_USEDEFAULT(),
                 800, 600, MemoryAddress.NULL, MemoryAddress.NULL, MemoryAddress.NULL, MemoryAddress.NULL);
         if (hwndMain == MemoryAddress.NULL) {
             System.out.println("CreateWindowExW failed!");
+            System.out.println("Error: " + Windows_h.GetLastError());
             System.exit(-1);
         }
         Windows_h.ShowWindow(hwndMain, Windows_h.SW_SHOW());
