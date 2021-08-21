@@ -71,15 +71,18 @@ public class Vulkan {
 
             MemorySegment pPropertyCount = SegmentAllocator.ofScope(scope).allocate(C_INT, -1);
             vulkan_h.vkEnumerateInstanceLayerProperties(pPropertyCount.address(), MemoryAddress.NULL);
-            System.out.println("property count: " + Arrays.toString(pPropertyCount.toByteArray()));
             System.out.println("property count: " + MemoryAccess.getInt(pPropertyCount));
 
-            int maxDevices = 3;
+            // See how many physical devices Vulkan knows about, then use that number to enumerate them.
+            MemorySegment pPhysicalDeviceCount = SegmentAllocator.ofScope(scope).allocate(C_INT, -1);
+            vulkan_h.vkEnumeratePhysicalDevices(MemoryAccess.getAddress(pVkInstance),
+                    pPhysicalDeviceCount.address(),
+                    MemoryAddress.NULL);
+
             // VkPhysicalDevice is an opaque pointer defined by VK_DEFINE_HANDLE macro - so it has 64-bit size on a
-            // 64-bit system (thus an array of them has size 8 bytes * num max devices).
+            // 64-bit system (thus an array of them has size 8 bytes * num devices).
             MemorySegment pPhysicalDevices = SegmentAllocator.ofScope(scope).allocate(
-                    C_POINTER.byteSize() * maxDevices);
-            MemorySegment pPhysicalDeviceCount = SegmentAllocator.ofScope(scope).allocate(C_INT, maxDevices);
+                    C_POINTER.byteSize() * MemoryAccess.getInt(pPhysicalDeviceCount));
             if (VkResult(vulkan_h.vkEnumeratePhysicalDevices(MemoryAccess.getAddress(pVkInstance),
                     pPhysicalDeviceCount.address(),
                     pPhysicalDevices.address())) != VK_SUCCESS) {
@@ -109,6 +112,8 @@ public class Vulkan {
                 System.out.println("memoryTypeCount: " + VkPhysicalDeviceMemoryProperties.memoryTypeCount$get(pMemoryProperties));
                 System.out.println("memoryHeapCount: " + VkPhysicalDeviceMemoryProperties.memoryHeapCount$get(pMemoryProperties));
 
+                // See how many properties the queue family of the current physical device has, then use that number to
+                // get them.
                 MemorySegment pQueueFamilyPropertyCount = SegmentAllocator.ofScope(scope).allocate(C_INT, -1);
                 vulkan_h.vkGetPhysicalDeviceQueueFamilyProperties(MemoryAccess.getAddressAtIndex(pPhysicalDevices, i),
                         pQueueFamilyPropertyCount, MemoryAddress.NULL);
