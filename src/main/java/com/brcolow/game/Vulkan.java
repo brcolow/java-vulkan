@@ -1,6 +1,8 @@
 package com.brcolow.game;
 
 import com.brcolow.vulkanapi.VkApplicationInfo;
+import com.brcolow.vulkanapi.VkDeviceCreateInfo;
+import com.brcolow.vulkanapi.VkDeviceQueueCreateInfo;
 import com.brcolow.vulkanapi.VkInstanceCreateInfo;
 import com.brcolow.vulkanapi.VkPhysicalDeviceFeatures;
 import com.brcolow.vulkanapi.VkPhysicalDeviceMemoryProperties;
@@ -23,10 +25,15 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
 
 import static com.brcolow.game.VKResult.*;
 import static com.brcolow.game.VkPhysicalDeviceType.*;
+import static jdk.incubator.foreign.CLinker.C_DOUBLE;
+import static jdk.incubator.foreign.CLinker.C_FLOAT;
 import static jdk.incubator.foreign.CLinker.C_INT;
 import static jdk.incubator.foreign.CLinker.C_POINTER;
 
@@ -60,70 +67,14 @@ public class Vulkan {
             });
             VkInstanceCreateInfo.ppEnabledExtensionNames$set(pInstanceCreateInfo, ppEnabledExtensionNames.address());
 
-            // VKInstance is an opaque pointer defined by VK_DEFINE_HANDLE macro - so it has 64-bit size on a 64-bit system.
+            // VKInstance is an opaque pointer defined by VK_DEFINE_HANDLE macro - so it has C_POINTER byte size (64-bit
+            // on 64-bit system).
             var pVkInstance = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
             if (VkResult(vulkan_h.vkCreateInstance(pInstanceCreateInfo.address(),
                     MemoryAddress.NULL,
                     pVkInstance.address())) != VK_SUCCESS) {
                 System.out.println("vkCreateInstance failed!");
                 System.exit(-1);
-            }
-
-            MemorySegment pPropertyCount = SegmentAllocator.ofScope(scope).allocate(C_INT, -1);
-            vulkan_h.vkEnumerateInstanceLayerProperties(pPropertyCount.address(), MemoryAddress.NULL);
-            System.out.println("property count: " + MemoryAccess.getInt(pPropertyCount));
-
-            // See how many physical devices Vulkan knows about, then use that number to enumerate them.
-            MemorySegment pPhysicalDeviceCount = SegmentAllocator.ofScope(scope).allocate(C_INT, -1);
-            vulkan_h.vkEnumeratePhysicalDevices(MemoryAccess.getAddress(pVkInstance),
-                    pPhysicalDeviceCount.address(),
-                    MemoryAddress.NULL);
-
-            // VkPhysicalDevice is an opaque pointer defined by VK_DEFINE_HANDLE macro - so it has 64-bit size on a
-            // 64-bit system (thus an array of them has size 8 bytes * num devices).
-            MemorySegment pPhysicalDevices = SegmentAllocator.ofScope(scope).allocate(
-                    C_POINTER.byteSize() * MemoryAccess.getInt(pPhysicalDeviceCount));
-            if (VkResult(vulkan_h.vkEnumeratePhysicalDevices(MemoryAccess.getAddress(pVkInstance),
-                    pPhysicalDeviceCount.address(),
-                    pPhysicalDevices.address())) != VK_SUCCESS) {
-                System.out.println("vkEnumeratePhysicalDevices failed!");
-                System.exit(-1);
-            }
-
-            System.out.println("physical device count: " + MemoryAccess.getInt(pPhysicalDeviceCount));
-
-            for (int i = 0; i < MemoryAccess.getInt(pPhysicalDeviceCount); i++) {
-                var pProperties = VkPhysicalDeviceProperties.allocate(scope);
-                vulkan_h.vkGetPhysicalDeviceProperties(MemoryAccess.getAddressAtIndex(pPhysicalDevices, i), pProperties);
-
-                System.out.println("apiVersion: " + VkPhysicalDeviceProperties.apiVersion$get(pProperties));
-                System.out.println("driverVersion: " + VkPhysicalDeviceProperties.driverVersion$get(pProperties));
-                System.out.println("vendorID: " + VkPhysicalDeviceProperties.vendorID$get(pProperties));
-                System.out.println("deviceID: " + VkPhysicalDeviceProperties.deviceID$get(pProperties));
-                System.out.println("deviceType: " + VkPhysicalDeviceType(VkPhysicalDeviceProperties.deviceType$get(pProperties)));
-                System.out.println("deviceName: " + CLinker.toJavaString(VkPhysicalDeviceProperties.deviceName$slice(pProperties)));
-
-                var pFeatures = VkPhysicalDeviceFeatures.allocate(scope);
-                vulkan_h.vkGetPhysicalDeviceFeatures(MemoryAccess.getAddressAtIndex(pPhysicalDevices, i), pFeatures);
-                System.out.println("robustBufferAccess: " + VkPhysicalDeviceFeatures.robustBufferAccess$get(pFeatures));
-
-                var pMemoryProperties =  VkPhysicalDeviceMemoryProperties.allocate(scope);
-                vulkan_h.vkGetPhysicalDeviceMemoryProperties(MemoryAccess.getAddressAtIndex(pPhysicalDevices, i), pMemoryProperties);
-                System.out.println("memoryTypeCount: " + VkPhysicalDeviceMemoryProperties.memoryTypeCount$get(pMemoryProperties));
-                System.out.println("memoryHeapCount: " + VkPhysicalDeviceMemoryProperties.memoryHeapCount$get(pMemoryProperties));
-
-                // See how many properties the queue family of the current physical device has, then use that number to
-                // get them.
-                MemorySegment pQueueFamilyPropertyCount = SegmentAllocator.ofScope(scope).allocate(C_INT, -1);
-                vulkan_h.vkGetPhysicalDeviceQueueFamilyProperties(MemoryAccess.getAddressAtIndex(pPhysicalDevices, i),
-                        pQueueFamilyPropertyCount, MemoryAddress.NULL);
-                System.out.println("pQueueFamilyPropertyCount: " + MemoryAccess.getInt(pQueueFamilyPropertyCount));
-
-                MemorySegment pQueueFamilyProperties = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize() *
-                        MemoryAccess.getInt(pQueueFamilyPropertyCount));
-                vulkan_h.vkGetPhysicalDeviceQueueFamilyProperties(MemoryAccess.getAddressAtIndex(pPhysicalDevices, i),
-                        pQueueFamilyPropertyCount, pQueueFamilyProperties);
-                System.out.println("queueCount: " + VkQueueFamilyProperties.queueCount$get(pQueueFamilyProperties));
             }
 
             createWin32Window(scope);
@@ -144,6 +95,107 @@ public class Vulkan {
                 System.out.println("vkCreateWin32SurfaceKHR failed!");
                 System.exit(-1);
             }
+
+            MemorySegment pPropertyCount = SegmentAllocator.ofScope(scope).allocate(C_INT, -1);
+            vulkan_h.vkEnumerateInstanceLayerProperties(pPropertyCount.address(), MemoryAddress.NULL);
+            System.out.println("property count: " + MemoryAccess.getInt(pPropertyCount));
+
+            // See how many physical devices Vulkan knows about, then use that number to enumerate them.
+            MemorySegment pPhysicalDeviceCount = SegmentAllocator.ofScope(scope).allocate(C_INT, -1);
+            vulkan_h.vkEnumeratePhysicalDevices(MemoryAccess.getAddress(pVkInstance),
+                    pPhysicalDeviceCount.address(),
+                    MemoryAddress.NULL);
+
+            int numPhysicalDevices = MemoryAccess.getInt(pPhysicalDeviceCount);
+            if (numPhysicalDevices == 0) {
+                System.out.println("numPhysicalDevices was 0!");
+                System.exit(-1);
+            }
+
+            // VkPhysicalDevice is an opaque pointer defined by VK_DEFINE_HANDLE macro - so it has C_POINTER byte size
+            // (64-bit size on a 64-bit system) - thus an array of them has size = size(C_POINTER) * num devices.
+            MemorySegment pPhysicalDevices = SegmentAllocator.ofScope(scope).allocate(
+                    C_POINTER.byteSize() * numPhysicalDevices);
+            if (VkResult(vulkan_h.vkEnumeratePhysicalDevices(MemoryAccess.getAddress(pVkInstance),
+                    pPhysicalDeviceCount.address(),
+                    pPhysicalDevices.address())) != VK_SUCCESS) {
+                System.out.println("vkEnumeratePhysicalDevices failed!");
+                System.exit(-1);
+            }
+
+            System.out.println("physical device count: " + numPhysicalDevices);
+
+            List<PhysicalDevice> physicalDevices = new ArrayList<>();
+            for (int i = 0; i < numPhysicalDevices; i++) {
+                var pProperties = VkPhysicalDeviceProperties.allocate(scope);
+                vulkan_h.vkGetPhysicalDeviceProperties(MemoryAccess.getAddressAtIndex(pPhysicalDevices, i), pProperties);
+                var pFeatures = VkPhysicalDeviceFeatures.allocate(scope);
+                vulkan_h.vkGetPhysicalDeviceFeatures(MemoryAccess.getAddressAtIndex(pPhysicalDevices, i), pFeatures);
+                var pMemoryProperties =  VkPhysicalDeviceMemoryProperties.allocate(scope);
+                vulkan_h.vkGetPhysicalDeviceMemoryProperties(MemoryAccess.getAddressAtIndex(pPhysicalDevices, i), pMemoryProperties);
+
+                // See how many properties the queue family of the current physical device has, then use that number to
+                // get them.
+                MemorySegment pQueueFamilyPropertyCount = SegmentAllocator.ofScope(scope).allocate(C_INT, -1);
+                vulkan_h.vkGetPhysicalDeviceQueueFamilyProperties(MemoryAccess.getAddressAtIndex(pPhysicalDevices, i),
+                        pQueueFamilyPropertyCount, MemoryAddress.NULL);
+                MemorySegment pQueueFamilyProperties = VkQueueFamilyProperties.allocateArray(
+                        MemoryAccess.getInt(pQueueFamilyPropertyCount), scope);
+                vulkan_h.vkGetPhysicalDeviceQueueFamilyProperties(MemoryAccess.getAddressAtIndex(pPhysicalDevices, i),
+                        pQueueFamilyPropertyCount, pQueueFamilyProperties.address());
+
+                physicalDevices.add(new PhysicalDevice(scope, MemoryAccess.getAddressAtIndex(pPhysicalDevices, i), pProperties,
+                        pFeatures, pMemoryProperties, MemoryAccess.getInt(pQueueFamilyPropertyCount), pQueueFamilyProperties, pSurface));
+            }
+
+            for (PhysicalDevice physicalDevice : physicalDevices) {
+                physicalDevice.printInfo();
+            }
+
+            var pDeviceQueueCreateInfo = VkDeviceQueueCreateInfo.allocate(scope);
+            VkDeviceQueueCreateInfo.sType$set(pDeviceQueueCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO());
+            Optional<QueueFamily> graphicsQueueFamilyOpt = physicalDevices.stream()
+                    .filter(physicalDevice -> physicalDevice.getDeviceType() == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+                    .flatMap(physicalDevice -> physicalDevice.queueFamilies.stream())
+                    .filter(queueFamily -> queueFamily.supportsGraphicsOperations)
+                    .filter(queueFamily -> queueFamily.supportsPresentToSurface)
+                    .findFirst();
+            if (graphicsQueueFamilyOpt.isEmpty()) {
+                System.out.println("Could not find a discrete GPU physical device with a graphics queue family!");
+                System.exit(-1);
+            }
+
+            QueueFamily graphicsQueueFamily = graphicsQueueFamilyOpt.get();
+            System.out.println("Using queue family: " + graphicsQueueFamily);
+            VkDeviceQueueCreateInfo.queueFamilyIndex$set(pDeviceQueueCreateInfo, graphicsQueueFamily.queueFamilyIndex);
+            VkDeviceQueueCreateInfo.queueCount$set(pDeviceQueueCreateInfo, 1);
+            VkDeviceQueueCreateInfo.pQueuePriorities$set(pDeviceQueueCreateInfo, SegmentAllocator.ofScope(scope).allocate(C_DOUBLE, 1.0).address());
+
+            var pPhysicalDeviceFeatures = VkPhysicalDeviceFeatures.allocate(scope);
+
+            var pDeviceCreateInfo = VkDeviceCreateInfo.allocate(scope);
+            VkDeviceCreateInfo.sType$set(pDeviceCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO());
+            VkDeviceCreateInfo.pQueueCreateInfos$set(pDeviceCreateInfo, pDeviceQueueCreateInfo.address());
+            VkDeviceCreateInfo.queueCreateInfoCount$set(pDeviceCreateInfo, 1);
+            VkDeviceCreateInfo.pEnabledFeatures$set(pDeviceCreateInfo, pPhysicalDeviceFeatures.address());
+            // Newer Vulkan implementations do not distinguish between instance and device specific validation layers,
+            // but set it to maintain compat with old implementations.
+            VkDeviceCreateInfo.enabledExtensionCount$set(pDeviceCreateInfo, 0);
+            VkDeviceCreateInfo.ppEnabledExtensionNames$set(pDeviceCreateInfo, SegmentAllocator.ofScope(scope)
+                    .allocate(C_POINTER).address());
+
+            var pVkDevice = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
+            var result = VkResult(vulkan_h.vkCreateDevice(graphicsQueueFamily.physicalDevice, pDeviceCreateInfo.address(),
+                    MemoryAddress.NULL, pVkDevice.address()));
+            if (result != VK_SUCCESS) {
+                System.out.println("vkCreateDevice failed: " + result);
+                System.exit(-1);
+            } else {
+                System.out.println("vkCreateDevice succeeded.");
+            }
+
+            var pVkGraphicsQueue = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
+            vulkan_h.vkGetDeviceQueue(MemoryAccess.getAddress(pVkDevice), graphicsQueueFamily.queueFamilyIndex, 0, pVkGraphicsQueue.address());
 
             MemorySegment pMsg = MSG.allocate(scope);
             int getMessageRet;
@@ -205,5 +257,113 @@ public class Vulkan {
 
         Windows_h.ShowWindow(hwndMain, Windows_h.SW_SHOW());
         Windows_h.UpdateWindow(hwndMain);
+    }
+
+    private static class PhysicalDevice {
+        private final ResourceScope scope;
+        private final MemoryAddress physicalDeviceAddr;
+        private final MemorySegment physicalDeviceProperties;
+        private final MemorySegment physicalDeviceFeatures;
+        private final MemorySegment physicalDeviceMemoryProperties;
+        private final int numQueueFamilies;
+        private final MemorySegment physicalDeviceQueueFamilyProperties;
+        private final MemorySegment surface;
+        private final List<QueueFamily> queueFamilies;
+
+        private PhysicalDevice(ResourceScope scope, MemoryAddress physicalDeviceAddr, MemorySegment physicalDeviceProperties,
+                               MemorySegment physicalDeviceFeatures, MemorySegment physicalDeviceMemoryProperties,
+                               int numQueueFamilies, MemorySegment physicalDeviceQueueFamilyProperties, MemorySegment surface) {
+            this.scope = scope;
+            this.physicalDeviceAddr = physicalDeviceAddr;
+            this.physicalDeviceProperties = physicalDeviceProperties;
+            this.physicalDeviceFeatures = physicalDeviceFeatures;
+            this.physicalDeviceMemoryProperties = physicalDeviceMemoryProperties;
+            this.numQueueFamilies = numQueueFamilies;
+            this.physicalDeviceQueueFamilyProperties = physicalDeviceQueueFamilyProperties;
+            this.surface = surface;
+
+            if (numQueueFamilies > 0) {
+                queueFamilies = new ArrayList<>();
+            } else {
+                queueFamilies = Collections.emptyList();
+            }
+
+            for (int i = 0; i < numQueueFamilies; i++) {
+                MemorySegment queueFamily = VkQueueFamilyProperties.ofAddress(physicalDeviceQueueFamilyProperties
+                        .address().addOffset(i * VkQueueFamilyProperties.sizeof()), scope);
+                int queueCount = VkQueueFamilyProperties.queueCount$get(queueFamily);
+                System.out.println("queueCount: " + queueCount);
+                System.out.println("queueFlags: " + VkQueueFamilyProperties.queueFlags$get(queueFamily));
+                int queueFlags = VkQueueFamilyProperties.queueFlags$get(queueFamily);
+
+                MemorySegment pPresentSupported = SegmentAllocator.ofScope(scope).allocate(C_INT, -1);
+                vulkan_h.vkGetPhysicalDeviceSurfaceSupportKHR(physicalDeviceAddr, i, surface.address(), pPresentSupported.address());
+
+                queueFamilies.add(new QueueFamily(physicalDeviceAddr, i, queueCount, (queueFlags & vulkan_h.VK_QUEUE_GRAPHICS_BIT()) != 0,
+                        (queueFlags & vulkan_h.VK_QUEUE_COMPUTE_BIT()) != 0,
+                        (queueFlags & vulkan_h.VK_QUEUE_TRANSFER_BIT()) != 0,
+                        (queueFlags & vulkan_h.VK_QUEUE_SPARSE_BINDING_BIT()) != 0,
+                        MemoryAccess.getInt(pPresentSupported) == vulkan_h.VK_TRUE()));
+            }
+
+            queueFamilies.forEach(System.out::println);
+        }
+
+        public void printInfo() {
+            System.out.println("apiVersion: " + VkPhysicalDeviceProperties.apiVersion$get(physicalDeviceProperties));
+            System.out.println("driverVersion: " + VkPhysicalDeviceProperties.driverVersion$get(physicalDeviceProperties));
+            System.out.println("vendorID: " + VkPhysicalDeviceProperties.vendorID$get(physicalDeviceProperties));
+            System.out.println("deviceID: " + VkPhysicalDeviceProperties.deviceID$get(physicalDeviceProperties));
+            System.out.println("deviceType: " + VkPhysicalDeviceType(VkPhysicalDeviceProperties.deviceType$get(physicalDeviceProperties)));
+            System.out.println("deviceName: " + CLinker.toJavaString(VkPhysicalDeviceProperties.deviceName$slice(physicalDeviceProperties)));
+
+            System.out.println("robustBufferAccess: " + VkPhysicalDeviceFeatures.robustBufferAccess$get(physicalDeviceFeatures));
+
+            System.out.println("memoryTypeCount: " + VkPhysicalDeviceMemoryProperties.memoryTypeCount$get(physicalDeviceMemoryProperties));
+            System.out.println("memoryHeapCount: " + VkPhysicalDeviceMemoryProperties.memoryHeapCount$get(physicalDeviceMemoryProperties));
+
+            System.out.println("numQueueFamilies: " + numQueueFamilies);
+        }
+
+        public VkPhysicalDeviceType getDeviceType() {
+            return VkPhysicalDeviceType(VkPhysicalDeviceProperties.deviceType$get(physicalDeviceProperties));
+        }
+    }
+
+    private static class QueueFamily {
+        private final MemoryAddress physicalDevice;
+        private final int queueFamilyIndex;
+        private final int numQueues;
+        private final boolean supportsGraphicsOperations;
+        private final boolean supportsComputeOperations;
+        private final boolean supportsTransferOperations;
+        private final boolean supportsSparseMemoryManagementOperations;
+        private final boolean supportsPresentToSurface;
+
+        private QueueFamily(MemoryAddress physicalDevice, int queueFamilyIndex, int numQueues, boolean supportsGraphicsOperations,
+                            boolean supportsComputeOperations, boolean supportsTransferOperations,
+                            boolean supportsSparseMemoryManagementOperations, boolean supportsPresentToSurface) {
+            this.physicalDevice = physicalDevice;
+            this.queueFamilyIndex = queueFamilyIndex;
+            this.numQueues = numQueues;
+            this.supportsGraphicsOperations = supportsGraphicsOperations;
+            this.supportsComputeOperations = supportsComputeOperations;
+            this.supportsTransferOperations = supportsTransferOperations;
+            this.supportsSparseMemoryManagementOperations = supportsSparseMemoryManagementOperations;
+            this.supportsPresentToSurface = supportsPresentToSurface;
+        }
+
+        @Override
+        public String toString() {
+            return "QueueFamily{" +
+                    "queueFamilyIndex=" + queueFamilyIndex +
+                    ", numQueues=" + numQueues +
+                    ", supportsGraphicsOperations=" + supportsGraphicsOperations +
+                    ", supportsComputeOperations=" + supportsComputeOperations +
+                    ", supportsTransferOperations=" + supportsTransferOperations +
+                    ", supportedSparseMemoryManagementOperations=" + supportsSparseMemoryManagementOperations +
+                    ", supportsPresentToSurface=" + supportsPresentToSurface +
+                    '}';
+        }
     }
 }
