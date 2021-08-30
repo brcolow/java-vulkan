@@ -1,16 +1,23 @@
 package com.brcolow.game;
 
 import com.brcolow.vulkanapi.VkApplicationInfo;
+import com.brcolow.vulkanapi.VkComponentMapping;
 import com.brcolow.vulkanapi.VkDeviceCreateInfo;
 import com.brcolow.vulkanapi.VkDeviceQueueCreateInfo;
+import com.brcolow.vulkanapi.VkExtent2D;
+import com.brcolow.vulkanapi.VkImageSubresourceRange;
+import com.brcolow.vulkanapi.VkImageViewCreateInfo;
 import com.brcolow.vulkanapi.VkInstanceCreateInfo;
 import com.brcolow.vulkanapi.VkPhysicalDeviceFeatures;
 import com.brcolow.vulkanapi.VkPhysicalDeviceMemoryProperties;
 import com.brcolow.vulkanapi.VkPhysicalDeviceProperties;
 import com.brcolow.vulkanapi.VkQueueFamilyProperties;
+import com.brcolow.vulkanapi.VkSurfaceCapabilitiesKHR;
+import com.brcolow.vulkanapi.VkSwapchainCreateInfoKHR;
 import com.brcolow.vulkanapi.VkWin32SurfaceCreateInfoKHR;
 import com.brcolow.vulkanapi.vulkan_h;
 import com.brcolow.winapi.MSG;
+import com.brcolow.winapi.RECT;
 import com.brcolow.winapi.WNDCLASSEXW;
 import com.brcolow.winapi.Windows_h;
 import jdk.incubator.foreign.Addressable;
@@ -21,10 +28,14 @@ import jdk.incubator.foreign.MemorySegment;
 import jdk.incubator.foreign.ResourceScope;
 import jdk.incubator.foreign.SegmentAllocator;
 
+import java.io.IOException;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -33,7 +44,6 @@ import java.util.Optional;
 import static com.brcolow.game.VKResult.*;
 import static com.brcolow.game.VkPhysicalDeviceType.*;
 import static jdk.incubator.foreign.CLinker.C_DOUBLE;
-import static jdk.incubator.foreign.CLinker.C_FLOAT;
 import static jdk.incubator.foreign.CLinker.C_INT;
 import static jdk.incubator.foreign.CLinker.C_POINTER;
 
@@ -60,24 +70,31 @@ public class Vulkan {
             VkInstanceCreateInfo.sType$set(pInstanceCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO());
             VkInstanceCreateInfo.pApplicationInfo$set(pInstanceCreateInfo, pAppInfo.address());
             VkInstanceCreateInfo.enabledExtensionCount$set(pInstanceCreateInfo, 2);
-            MemorySegment ppEnabledExtensionNames = SegmentAllocator.ofScope(scope).allocateArray(C_POINTER,
-                    new Addressable[]{
-                            CLinker.toCString("VK_KHR_surface", scope),
-                            CLinker.toCString("VK_KHR_win32_surface", scope)
-            });
-            VkInstanceCreateInfo.ppEnabledExtensionNames$set(pInstanceCreateInfo, ppEnabledExtensionNames.address());
+            VkInstanceCreateInfo.ppEnabledExtensionNames$set(pInstanceCreateInfo,
+                    SegmentAllocator.ofScope(scope).allocateArray(C_POINTER,
+                            new Addressable[]{
+                                    CLinker.toCString("VK_KHR_surface", scope),
+                                    CLinker.toCString("VK_KHR_win32_surface", scope)
+                    }).address());
 
             // VKInstance is an opaque pointer defined by VK_DEFINE_HANDLE macro - so it has C_POINTER byte size (64-bit
             // on 64-bit system).
             var pVkInstance = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
-            if (VkResult(vulkan_h.vkCreateInstance(pInstanceCreateInfo.address(),
+            var result = VkResult(vulkan_h.vkCreateInstance(pInstanceCreateInfo.address(),
                     MemoryAddress.NULL,
-                    pVkInstance.address())) != VK_SUCCESS) {
-                System.out.println("vkCreateInstance failed!");
+                    pVkInstance.address()));
+            if (result != VK_SUCCESS) {
+                System.out.println("vkCreateInstance failed: " + result);
                 System.exit(-1);
             }
 
             createWin32Window(scope);
+
+            var pRect = RECT.allocate(scope);
+            Windows_h.GetClientRect(hwndMain, pRect.address());
+
+            int width = RECT.right$get(pRect);
+            int height = RECT.bottom$get(pRect);
 
             var pWin32SurfaceCreateInfo = VkWin32SurfaceCreateInfoKHR.allocate(scope);
             VkWin32SurfaceCreateInfoKHR.sType$set(pWin32SurfaceCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR());
@@ -88,11 +105,10 @@ public class Vulkan {
             VkWin32SurfaceCreateInfoKHR.hwnd$set(pWin32SurfaceCreateInfo, hwndMain);
 
             var pSurface = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
-            if (VkResult(vulkan_h.vkCreateWin32SurfaceKHR(MemoryAccess.getAddress(pVkInstance),
-                    pWin32SurfaceCreateInfo.address(),
-                    MemoryAddress.NULL,
-                    pSurface.address())) != VK_SUCCESS) {
-                System.out.println("vkCreateWin32SurfaceKHR failed!");
+            result = VkResult(vulkan_h.vkCreateWin32SurfaceKHR(MemoryAccess.getAddress(pVkInstance),
+                    pWin32SurfaceCreateInfo.address(), MemoryAddress.NULL, pSurface.address()));
+            if (result != VK_SUCCESS) {
+                System.out.println("vkCreateWin32SurfaceKHR failed: " + result);
                 System.exit(-1);
             }
 
@@ -116,10 +132,11 @@ public class Vulkan {
             // (64-bit size on a 64-bit system) - thus an array of them has size = size(C_POINTER) * num devices.
             MemorySegment pPhysicalDevices = SegmentAllocator.ofScope(scope).allocate(
                     C_POINTER.byteSize() * numPhysicalDevices);
-            if (VkResult(vulkan_h.vkEnumeratePhysicalDevices(MemoryAccess.getAddress(pVkInstance),
+            result = VkResult(vulkan_h.vkEnumeratePhysicalDevices(MemoryAccess.getAddress(pVkInstance),
                     pPhysicalDeviceCount.address(),
-                    pPhysicalDevices.address())) != VK_SUCCESS) {
-                System.out.println("vkEnumeratePhysicalDevices failed!");
+                    pPhysicalDevices.address()));
+            if (result != VK_SUCCESS) {
+                System.out.println("vkEnumeratePhysicalDevices failed: " + result);
                 System.exit(-1);
             }
 
@@ -180,22 +197,138 @@ public class Vulkan {
             VkDeviceCreateInfo.pEnabledFeatures$set(pDeviceCreateInfo, pPhysicalDeviceFeatures.address());
             // Newer Vulkan implementations do not distinguish between instance and device specific validation layers,
             // but set it to maintain compat with old implementations.
-            VkDeviceCreateInfo.enabledExtensionCount$set(pDeviceCreateInfo, 0);
+            VkDeviceCreateInfo.enabledExtensionCount$set(pDeviceCreateInfo, 1);
             VkDeviceCreateInfo.ppEnabledExtensionNames$set(pDeviceCreateInfo, SegmentAllocator.ofScope(scope)
-                    .allocate(C_POINTER).address());
+                    .allocateArray(C_POINTER, new Addressable[]{vulkan_h.VK_KHR_SWAPCHAIN_EXTENSION_NAME()}).address());
 
             var pVkDevice = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
-            var result = VkResult(vulkan_h.vkCreateDevice(graphicsQueueFamily.physicalDevice, pDeviceCreateInfo.address(),
+            result = VkResult(vulkan_h.vkCreateDevice(graphicsQueueFamily.physicalDevice, pDeviceCreateInfo.address(),
                     MemoryAddress.NULL, pVkDevice.address()));
             if (result != VK_SUCCESS) {
                 System.out.println("vkCreateDevice failed: " + result);
                 System.exit(-1);
-            } else {
-                System.out.println("vkCreateDevice succeeded.");
+            }
+
+            MemorySegment pPresentModeCount = SegmentAllocator.ofScope(scope).allocate(C_INT, -1);
+            result = VkResult(vulkan_h.vkGetPhysicalDeviceSurfacePresentModesKHR(graphicsQueueFamily.physicalDevice,
+                    MemoryAccess.getAddress(pSurface), pPresentModeCount.address(), MemoryAddress.NULL));
+            if (result != VK_SUCCESS) {
+                System.out.println("vkGetPhysicalDeviceSurfacePresentModesKHR failed: " + result);
+                System.exit(-1);
+            }
+
+            int numPresentModes = MemoryAccess.getInt(pPresentModeCount);
+            if (numPresentModes == 0) {
+                System.out.println("numPresentModes was 0!");
+                System.exit(-1);
+            }
+
+            System.out.println("numPresentModes: " + numPresentModes);
+
+            var pPresentModes = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize() * numPresentModes);
+            result = VkResult(vulkan_h.vkGetPhysicalDeviceSurfacePresentModesKHR(graphicsQueueFamily.physicalDevice,
+                    MemoryAccess.getAddress(pSurface), pPresentModeCount.address(), pPresentModes.address()));
+            if (result != VK_SUCCESS) {
+                System.out.println("vkGetPhysicalDeviceSurfacePresentModesKHR failed: " + result);
+                System.exit(-1);
+            }
+
+            var pSurfaceCapabilities = VkSurfaceCapabilitiesKHR.allocate(scope);
+            result = VkResult(vulkan_h.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(graphicsQueueFamily.physicalDevice,
+                    MemoryAccess.getAddress(pSurface), pSurfaceCapabilities.address()));
+            if (result != VK_SUCCESS) {
+                System.out.println("vkGetPhysicalDeviceSurfaceCapabilitiesKHR failed: " + result);
+                System.exit(-1);
             }
 
             var pVkGraphicsQueue = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
             vulkan_h.vkGetDeviceQueue(MemoryAccess.getAddress(pVkDevice), graphicsQueueFamily.queueFamilyIndex, 0, pVkGraphicsQueue.address());
+
+            int swapChainImageFormat = vulkan_h.VK_FORMAT_B8G8R8A8_SRGB();
+            var pSwapchainCreateInfoKHR = VkSwapchainCreateInfoKHR.allocate(scope);
+            VkSwapchainCreateInfoKHR.sType$set(pSwapchainCreateInfoKHR, vulkan_h.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR());
+            VkSwapchainCreateInfoKHR.surface$set(pSwapchainCreateInfoKHR, MemoryAccess.getAddress(pSurface));
+            VkSwapchainCreateInfoKHR.minImageCount$set(pSwapchainCreateInfoKHR, VkSurfaceCapabilitiesKHR.minImageCount$get(pSurfaceCapabilities) + 1);
+            VkSwapchainCreateInfoKHR.imageFormat$set(pSwapchainCreateInfoKHR, swapChainImageFormat);
+            VkSwapchainCreateInfoKHR.imageColorSpace$set(pSwapchainCreateInfoKHR, vulkan_h.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR());
+            VkExtent2D.width$set(VkSwapchainCreateInfoKHR.imageExtent$slice(pSwapchainCreateInfoKHR), width);
+            VkExtent2D.height$set(VkSwapchainCreateInfoKHR.imageExtent$slice(pSwapchainCreateInfoKHR), height);
+            VkSwapchainCreateInfoKHR.imageArrayLayers$set(pSwapchainCreateInfoKHR, 1);
+            VkSwapchainCreateInfoKHR.imageUsage$set(pSwapchainCreateInfoKHR, vulkan_h.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT());
+            // if presentFamily != graphicsFamily (different queues then we have to use VK_SHARING_MODE_CONCURRENT and specify
+            // the following:
+            //
+            // createInfo.queueFamilyIndexCount = 2;
+            // createInfo.pQueueFamilyIndices = queueFamilyIndices;
+            VkSwapchainCreateInfoKHR.imageSharingMode$set(pSwapchainCreateInfoKHR, vulkan_h.VK_SHARING_MODE_EXCLUSIVE());
+            VkSwapchainCreateInfoKHR.preTransform$set(pSwapchainCreateInfoKHR, VkSurfaceCapabilitiesKHR.currentTransform$get(pSurfaceCapabilities));
+            VkSwapchainCreateInfoKHR.compositeAlpha$set(pSwapchainCreateInfoKHR, vulkan_h.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR());
+            VkSwapchainCreateInfoKHR.presentMode$set(pSwapchainCreateInfoKHR, vulkan_h.VK_PRESENT_MODE_FIFO_KHR());
+            VkSwapchainCreateInfoKHR.clipped$set(pSwapchainCreateInfoKHR, vulkan_h.VK_TRUE());
+            VkSwapchainCreateInfoKHR.oldSwapchain$set(pSwapchainCreateInfoKHR, vulkan_h.VK_NULL_HANDLE());
+
+            var pSwapChain = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
+            result = VkResult(vulkan_h.vkCreateSwapchainKHR(MemoryAccess.getAddress(pVkDevice),
+                    pSwapchainCreateInfoKHR.address(), MemoryAddress.NULL, pSwapChain.address()));
+            if (result != VK_SUCCESS) {
+                System.out.println("vkCreateSwapchainKHR failed: " + result);
+                System.exit(-1);
+            }
+
+            var pSwapChainImagesCount = SegmentAllocator.ofScope(scope).allocate(C_INT, -1);
+            vulkan_h.vkGetSwapchainImagesKHR(MemoryAccess.getAddress(pVkDevice),
+                    MemoryAccess.getAddress(pSwapChain),
+                    pSwapChainImagesCount.address(),
+                    MemoryAddress.NULL);
+            int numSwapChainImages = MemoryAccess.getInt(pSwapChainImagesCount);
+            if (numSwapChainImages == 0) {
+                System.out.println("numSwapChainImages was 0!");
+                System.exit(-1);
+            }
+
+            System.out.println("numSwapChainImages: " + numSwapChainImages);
+
+            MemorySegment pSwapChainImages = SegmentAllocator.ofScope(scope).allocate(
+                    C_POINTER.byteSize() * numSwapChainImages);
+            vulkan_h.vkGetSwapchainImagesKHR(MemoryAccess.getAddress(pVkDevice),
+                    MemoryAccess.getAddress(pSwapChain),
+                    pSwapChainImagesCount.address(),
+                    pSwapChainImages.address());
+
+            for (int i = 0; i < numSwapChainImages; i++) {
+                var pImageViewCreateInfo = VkImageViewCreateInfo.allocate(scope);
+                VkImageViewCreateInfo.sType$set(pImageViewCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO());
+                VkImageViewCreateInfo.image$set(pImageViewCreateInfo, MemoryAccess.getAddressAtIndex(pSwapChainImages, i).address());
+                VkImageViewCreateInfo.viewType$set(pImageViewCreateInfo, vulkan_h.VK_IMAGE_VIEW_TYPE_2D());
+                VkImageViewCreateInfo.format$set(pImageViewCreateInfo, swapChainImageFormat);
+                VkComponentMapping.r$set(VkImageViewCreateInfo.components$slice(pImageViewCreateInfo), vulkan_h.VK_COMPONENT_SWIZZLE_IDENTITY());
+                VkComponentMapping.g$set(VkImageViewCreateInfo.components$slice(pImageViewCreateInfo), vulkan_h.VK_COMPONENT_SWIZZLE_IDENTITY());
+                VkComponentMapping.b$set(VkImageViewCreateInfo.components$slice(pImageViewCreateInfo), vulkan_h.VK_COMPONENT_SWIZZLE_IDENTITY());
+                VkComponentMapping.a$set(VkImageViewCreateInfo.components$slice(pImageViewCreateInfo), vulkan_h.VK_COMPONENT_SWIZZLE_IDENTITY());
+                VkImageSubresourceRange.aspectMask$set(VkImageViewCreateInfo.subresourceRange$slice(pImageViewCreateInfo), vulkan_h.VK_IMAGE_ASPECT_COLOR_BIT());
+                VkImageSubresourceRange.baseMipLevel$set(VkImageViewCreateInfo.subresourceRange$slice(pImageViewCreateInfo), 0);
+                VkImageSubresourceRange.levelCount$set(VkImageViewCreateInfo.subresourceRange$slice(pImageViewCreateInfo), 1);
+                VkImageSubresourceRange.baseArrayLayer$set(VkImageViewCreateInfo.subresourceRange$slice(pImageViewCreateInfo), 0);
+                VkImageSubresourceRange.layerCount$set(VkImageViewCreateInfo.subresourceRange$slice(pImageViewCreateInfo), 1);
+
+                if (VkResult(vulkan_h.vkCreateImageView(MemoryAccess.getAddress(pVkDevice),
+                        pImageViewCreateInfo.address(),
+                        MemoryAddress.NULL,
+                        MemoryAccess.getAddressAtIndex(pSwapChainImages, i))) != VK_SUCCESS) {
+                    System.out.println("vkCreateImageView failed!");
+                    System.exit(-1);
+                }
+            }
+
+            byte[] vertShaderBytes;
+            byte[] fragShaderBytes;
+            try {
+                vertShaderBytes = Files.readAllBytes(Paths.get(Vulkan.class.getResource("vert.spv").toURI()));
+                fragShaderBytes = Files.readAllBytes(Paths.get(Vulkan.class.getResource("frag.spv").toURI()));
+            } catch (IOException | URISyntaxException e) {
+                System.out.println("could not read shader file(s)");
+                System.exit(-1);
+            }
 
             MemorySegment pMsg = MSG.allocate(scope);
             int getMessageRet;

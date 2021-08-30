@@ -20,6 +20,10 @@ public enum VKResult {
     VK_ERROR_FORMAT_NOT_SUPPORTED,
     VK_ERROR_FRAGMENTED_POOL,
     VK_ERROR_UNKNOWN,
+    VK_ERROR_SURFACE_LOST_KHR,
+    VK_ERROR_NATIVE_WINDOW_IN_USE_KHR,
+    VK_SUBOPTIMAL_KHR,
+    VK_ERROR_OUT_OF_DATE_KHR,
     INTERNAL_UNKNOWN;
 
     public static VKResult VkResult(int result) {
@@ -62,7 +66,16 @@ public enum VKResult {
                 return VK_ERROR_FRAGMENTED_POOL;
             case -13:
                 return VK_ERROR_UNKNOWN;
+            case -1000000000:
+                return VK_ERROR_SURFACE_LOST_KHR;
+            case -1000000001:
+                return VK_ERROR_NATIVE_WINDOW_IN_USE_KHR;
+            case 1000001003:
+                return VK_SUBOPTIMAL_KHR;
+            case -1000001004:
+                return VK_ERROR_OUT_OF_DATE_KHR;
             default:
+                System.out.println("Unhandled VkResult code: " + result);
                 return INTERNAL_UNKNOWN;
         }
     }
