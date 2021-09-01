@@ -2,21 +2,49 @@ package com.brcolow.game;
 
 import com.brcolow.vulkanapi.PFN_vkCreateDebugUtilsMessengerEXT;
 import com.brcolow.vulkanapi.VkApplicationInfo;
+import com.brcolow.vulkanapi.VkAttachmentDescription;
+import com.brcolow.vulkanapi.VkAttachmentReference;
+import com.brcolow.vulkanapi.VkClearColorValue;
+import com.brcolow.vulkanapi.VkClearValue;
+import com.brcolow.vulkanapi.VkCommandBufferAllocateInfo;
+import com.brcolow.vulkanapi.VkCommandBufferBeginInfo;
+import com.brcolow.vulkanapi.VkCommandPoolCreateInfo;
 import com.brcolow.vulkanapi.VkComponentMapping;
 import com.brcolow.vulkanapi.VkDebugUtilsMessengerCreateInfoEXT;
 import com.brcolow.vulkanapi.VkDeviceCreateInfo;
 import com.brcolow.vulkanapi.VkDeviceQueueCreateInfo;
 import com.brcolow.vulkanapi.VkExtent2D;
+import com.brcolow.vulkanapi.VkFramebufferCreateInfo;
+import com.brcolow.vulkanapi.VkGraphicsPipelineCreateInfo;
 import com.brcolow.vulkanapi.VkImageSubresourceRange;
 import com.brcolow.vulkanapi.VkImageViewCreateInfo;
 import com.brcolow.vulkanapi.VkInstanceCreateInfo;
+import com.brcolow.vulkanapi.VkOffset2D;
 import com.brcolow.vulkanapi.VkPhysicalDeviceFeatures;
 import com.brcolow.vulkanapi.VkPhysicalDeviceMemoryProperties;
 import com.brcolow.vulkanapi.VkPhysicalDeviceProperties;
+import com.brcolow.vulkanapi.VkPipelineColorBlendAttachmentState;
+import com.brcolow.vulkanapi.VkPipelineColorBlendStateCreateInfo;
+import com.brcolow.vulkanapi.VkPipelineInputAssemblyStateCreateInfo;
+import com.brcolow.vulkanapi.VkPipelineLayoutCreateInfo;
+import com.brcolow.vulkanapi.VkPipelineMultisampleStateCreateInfo;
+import com.brcolow.vulkanapi.VkPipelineRasterizationStateCreateInfo;
+import com.brcolow.vulkanapi.VkPipelineShaderStageCreateInfo;
+import com.brcolow.vulkanapi.VkPipelineVertexInputStateCreateInfo;
+import com.brcolow.vulkanapi.VkPipelineViewportStateCreateInfo;
+import com.brcolow.vulkanapi.VkPresentInfoKHR;
 import com.brcolow.vulkanapi.VkQueueFamilyProperties;
+import com.brcolow.vulkanapi.VkRect2D;
+import com.brcolow.vulkanapi.VkRenderPassBeginInfo;
+import com.brcolow.vulkanapi.VkRenderPassCreateInfo;
+import com.brcolow.vulkanapi.VkSemaphoreCreateInfo;
 import com.brcolow.vulkanapi.VkShaderModuleCreateInfo;
+import com.brcolow.vulkanapi.VkSubmitInfo;
+import com.brcolow.vulkanapi.VkSubpassDependency;
+import com.brcolow.vulkanapi.VkSubpassDescription;
 import com.brcolow.vulkanapi.VkSurfaceCapabilitiesKHR;
 import com.brcolow.vulkanapi.VkSwapchainCreateInfoKHR;
+import com.brcolow.vulkanapi.VkViewport;
 import com.brcolow.vulkanapi.VkWin32SurfaceCreateInfoKHR;
 import com.brcolow.vulkanapi.vulkan_h;
 import com.brcolow.winapi.MSG;
@@ -25,7 +53,6 @@ import com.brcolow.winapi.WNDCLASSEXW;
 import com.brcolow.winapi.Windows_h;
 import jdk.incubator.foreign.Addressable;
 import jdk.incubator.foreign.CLinker;
-import jdk.incubator.foreign.FunctionDescriptor;
 import jdk.incubator.foreign.MemoryAccess;
 import jdk.incubator.foreign.MemoryAddress;
 import jdk.incubator.foreign.MemorySegment;
@@ -378,11 +405,10 @@ public class Vulkan {
                 VkImageSubresourceRange.baseArrayLayer$set(VkImageViewCreateInfo.subresourceRange$slice(pImageViewCreateInfo), 0);
                 VkImageSubresourceRange.layerCount$set(VkImageViewCreateInfo.subresourceRange$slice(pImageViewCreateInfo), 1);
 
-                if (VkResult(vulkan_h.vkCreateImageView(MemoryAccess.getAddress(pVkDevice),
-                        pImageViewCreateInfo.address(),
-                        MemoryAddress.NULL,
-                        pImageView)) != VK_SUCCESS) {
-                    System.out.println("vkCreateImageView failed!");
+                result = VkResult(vulkan_h.vkCreateImageView(MemoryAccess.getAddress(pVkDevice),
+                        pImageViewCreateInfo.address(), MemoryAddress.NULL, pImageView));
+                if (result != VK_SUCCESS) {
+                    System.out.println("vkCreateImageView failed: " + result);
                     System.exit(-1);
                 }
 
@@ -390,6 +416,7 @@ public class Vulkan {
             }
 
             System.out.println("imageViews: " + imageViews);
+
             byte[] vertShaderBytes = null;
             byte[] fragShaderBytes = null;
             try {
@@ -399,29 +426,287 @@ public class Vulkan {
                 System.out.println("could not read shader file(s)");
                 System.exit(-1);
             }
+            var pVertShaderModule = getShaderModule(MemoryAccess.getAddress(pVkDevice), vertShaderBytes, scope);
+            var pFragShaderModule = getShaderModule(MemoryAccess.getAddress(pVkDevice), fragShaderBytes, scope);
 
-            var pShaderModuleCreateInfo = VkShaderModuleCreateInfo.allocate(scope);
-            VkShaderModuleCreateInfo.sType$set(pShaderModuleCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO());
-            VkShaderModuleCreateInfo.codeSize$set(pShaderModuleCreateInfo, vertShaderBytes.length);
-            IntBuffer intBuf =
-                    ByteBuffer.wrap(vertShaderBytes)
-                            .order(ByteOrder.nativeOrder())
-                            .asIntBuffer();
-            int[] array = new int[intBuf.remaining()];
-            intBuf.get(array);
-            // MemorySegment arr = MemorySegment.allocateNative(MemoryLayout.sequenceLayout(vertShaderBytes.length / 4, JAVA_INT), scope);
-            // for (int i = 0; i <= array.length - 1 ; i++) {
-                // MemoryAccess.setIntAtIndex(arr, i, array[i]);
-            // }
-            System.out.println("vertShaderBytes: " + vertShaderBytes.length);
-            VkShaderModuleCreateInfo.pCode$set(pShaderModuleCreateInfo, SegmentAllocator.ofScope(scope).allocateArray(C_CHAR,
-                    vertShaderBytes).address());
+            var pVertShaderStageInfo = VkPipelineShaderStageCreateInfo.allocate(scope);
+            VkPipelineShaderStageCreateInfo.sType$set(pVertShaderStageInfo, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO());
+            VkPipelineShaderStageCreateInfo.stage$set(pVertShaderStageInfo, vulkan_h.VK_SHADER_STAGE_VERTEX_BIT());
+            VkPipelineShaderStageCreateInfo.module$set(pVertShaderStageInfo, MemoryAccess.getAddress(pVertShaderModule));
+            VkPipelineShaderStageCreateInfo.pName$set(pVertShaderStageInfo, CLinker.toCString("main", scope).address());
 
-            var pShaderModule = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
-            result = VkResult(vulkan_h.vkCreateShaderModule(MemoryAccess.getAddress(pVkDevice),
-                    pShaderModuleCreateInfo.address(), MemoryAddress.NULL, pShaderModule.address()));
+            var pFragShaderStageInfo = VkPipelineShaderStageCreateInfo.allocate(scope);
+            VkPipelineShaderStageCreateInfo.sType$set(pFragShaderStageInfo, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO());
+            VkPipelineShaderStageCreateInfo.stage$set(pFragShaderStageInfo, vulkan_h.VK_SHADER_STAGE_FRAGMENT_BIT());
+            VkPipelineShaderStageCreateInfo.module$set(pFragShaderStageInfo, MemoryAccess.getAddress(pFragShaderModule));
+            VkPipelineShaderStageCreateInfo.pName$set(pFragShaderStageInfo, CLinker.toCString("main", scope).address());
+
+            var pVertexInputStateInfo = VkPipelineVertexInputStateCreateInfo.allocate(scope);
+            VkPipelineVertexInputStateCreateInfo.sType$set(pVertexInputStateInfo, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO());
+            VkPipelineVertexInputStateCreateInfo.vertexBindingDescriptionCount$get(pVertexInputStateInfo, 0);
+            VkPipelineVertexInputStateCreateInfo.pVertexBindingDescriptions$set(pVertexInputStateInfo, MemoryAddress.NULL);
+            VkPipelineVertexInputStateCreateInfo.vertexAttributeDescriptionCount$set(pVertexInputStateInfo, 0);
+            VkPipelineVertexInputStateCreateInfo.pVertexAttributeDescriptions$set(pVertexInputStateInfo, MemoryAddress.NULL);
+
+            var pPipelineInputAssemblyStateInfo = VkPipelineInputAssemblyStateCreateInfo.allocate(scope);
+            VkPipelineInputAssemblyStateCreateInfo.sType$set(pPipelineInputAssemblyStateInfo, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO());
+            VkPipelineInputAssemblyStateCreateInfo.topology$set(pPipelineInputAssemblyStateInfo, vulkan_h.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST());
+            VkPipelineInputAssemblyStateCreateInfo.primitiveRestartEnable$set(pPipelineInputAssemblyStateInfo, vulkan_h.VK_FALSE());
+
+            var pViewport = VkViewport.allocate(scope);
+            VkViewport.x$set(pViewport, 0.0f);
+            VkViewport.y$set(pViewport, 0.0f);
+            VkViewport.width$set(pViewport, (float) width);
+            VkViewport.height$set(pViewport, (float) height);
+            VkViewport.minDepth$set(pViewport, 0.0f);
+            VkViewport.maxDepth$set(pViewport, 1.0f);
+
+            var pScissor = VkRect2D.allocate(scope);
+            VkOffset2D.x$set(VkRect2D.offset$slice(pScissor), 0);
+            VkOffset2D.y$set(VkRect2D.offset$slice(pScissor), 0);
+            VkExtent2D.width$set(VkRect2D.extent$slice(pScissor), width);
+            VkExtent2D.height$set(VkRect2D.extent$slice(pScissor), height);
+
+            var pPipelineViewportStateInfo = VkPipelineViewportStateCreateInfo.allocate(scope);
+            VkPipelineViewportStateCreateInfo.sType$set(pPipelineViewportStateInfo, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO());
+            VkPipelineViewportStateCreateInfo.viewportCount$set(pPipelineViewportStateInfo, 1);
+            VkPipelineViewportStateCreateInfo.pViewports$set(pPipelineViewportStateInfo, pViewport.address());
+            VkPipelineViewportStateCreateInfo.scissorCount$set(pPipelineViewportStateInfo, 1);
+            VkPipelineViewportStateCreateInfo.pScissors$set(pPipelineViewportStateInfo, pScissor.address());
+
+            var pPipelineRasterizationStateInfo = VkPipelineRasterizationStateCreateInfo.allocate(scope);
+            VkPipelineRasterizationStateCreateInfo.sType$set(pPipelineRasterizationStateInfo, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO());
+            VkPipelineRasterizationStateCreateInfo.depthClampEnable$set(pPipelineRasterizationStateInfo, vulkan_h.VK_FALSE());
+            VkPipelineRasterizationStateCreateInfo.rasterizerDiscardEnable$set(pPipelineRasterizationStateInfo, vulkan_h.VK_FALSE());
+            VkPipelineRasterizationStateCreateInfo.polygonMode$set(pPipelineRasterizationStateInfo, vulkan_h.VK_POLYGON_MODE_FILL());
+            VkPipelineRasterizationStateCreateInfo.lineWidth$set(pPipelineRasterizationStateInfo, 1.0f);
+            VkPipelineRasterizationStateCreateInfo.cullMode$set(pPipelineRasterizationStateInfo, vulkan_h.VK_CULL_MODE_BACK_BIT());
+            VkPipelineRasterizationStateCreateInfo.frontFace$set(pPipelineRasterizationStateInfo, vulkan_h.VK_FRONT_FACE_CLOCKWISE());
+            VkPipelineRasterizationStateCreateInfo.depthBiasEnable$set(pPipelineRasterizationStateInfo, vulkan_h.VK_FALSE());
+            VkPipelineRasterizationStateCreateInfo.depthBiasConstantFactor$set(pPipelineRasterizationStateInfo, 0.0f);
+            VkPipelineRasterizationStateCreateInfo.depthBiasClamp$set(pPipelineRasterizationStateInfo, 0.0f);
+            VkPipelineRasterizationStateCreateInfo.depthBiasSlopeFactor$set(pPipelineRasterizationStateInfo, 0.0f);
+
+            var pPipelineMultisampleStateInfo = VkPipelineMultisampleStateCreateInfo.allocate(scope);
+            VkPipelineMultisampleStateCreateInfo.sType$set(pPipelineMultisampleStateInfo, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO());
+            VkPipelineMultisampleStateCreateInfo.sampleShadingEnable$set(pPipelineMultisampleStateInfo, vulkan_h.VK_FALSE());
+            VkPipelineMultisampleStateCreateInfo.rasterizationSamples$set(pPipelineMultisampleStateInfo, vulkan_h.VK_SAMPLE_COUNT_1_BIT());
+            VkPipelineMultisampleStateCreateInfo.minSampleShading$set(pPipelineMultisampleStateInfo, 1.0f);
+            VkPipelineMultisampleStateCreateInfo.pSampleMask$set(pPipelineMultisampleStateInfo, MemoryAddress.NULL);
+            VkPipelineMultisampleStateCreateInfo.alphaToCoverageEnable$set(pPipelineMultisampleStateInfo, vulkan_h.VK_FALSE());
+            VkPipelineMultisampleStateCreateInfo.alphaToOneEnable$set(pPipelineMultisampleStateInfo, vulkan_h.VK_FALSE());
+
+            var pPipelineColorBlendAttachmentState = VkPipelineColorBlendAttachmentState.allocate(scope);
+            VkPipelineColorBlendAttachmentState.colorWriteMask$set(pPipelineColorBlendAttachmentState, vulkan_h.VK_COLOR_COMPONENT_R_BIT() |
+                    vulkan_h.VK_COLOR_COMPONENT_G_BIT() | vulkan_h.VK_COLOR_COMPONENT_B_BIT() | vulkan_h.VK_COLOR_COMPONENT_A_BIT());
+            VkPipelineColorBlendAttachmentState.blendEnable$set(pPipelineColorBlendAttachmentState, vulkan_h.VK_FALSE());
+            VkPipelineColorBlendAttachmentState.srcAlphaBlendFactor$set(pPipelineColorBlendAttachmentState, vulkan_h.VK_BLEND_FACTOR_ONE());
+            VkPipelineColorBlendAttachmentState.dstAlphaBlendFactor$set(pPipelineColorBlendAttachmentState, vulkan_h.VK_BLEND_FACTOR_ZERO());
+            VkPipelineColorBlendAttachmentState.colorBlendOp$set(pPipelineColorBlendAttachmentState, vulkan_h.VK_BLEND_OP_ADD());
+            VkPipelineColorBlendAttachmentState.srcAlphaBlendFactor$set(pPipelineColorBlendAttachmentState, vulkan_h.VK_BLEND_FACTOR_ONE());
+            VkPipelineColorBlendAttachmentState.dstAlphaBlendFactor$set(pPipelineColorBlendAttachmentState, vulkan_h.VK_BLEND_FACTOR_ZERO());
+            VkPipelineColorBlendAttachmentState.alphaBlendOp$set(pPipelineColorBlendAttachmentState, vulkan_h.VK_BLEND_OP_ADD());
+
+            // Alpha blending would be:
+            // colorBlendAttachment.blendEnable = VK_TRUE;
+            // colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+            // colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            // colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+            // colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            // colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+            // colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+
+            var pPipelineColorBlendStateInfo = VkPipelineColorBlendStateCreateInfo.allocate(scope);
+            VkPipelineColorBlendStateCreateInfo.sType$set(pPipelineColorBlendStateInfo, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO());
+            VkPipelineColorBlendStateCreateInfo.logicOpEnable$set(pPipelineColorBlendStateInfo, vulkan_h.VK_FALSE());
+            VkPipelineColorBlendStateCreateInfo.logicOp$set(pPipelineColorBlendStateInfo, vulkan_h.VK_LOGIC_OP_COPY());
+            VkPipelineColorBlendStateCreateInfo.attachmentCount$set(pPipelineColorBlendStateInfo, 1);
+            VkPipelineColorBlendStateCreateInfo.pAttachments$set(pPipelineColorBlendStateInfo, pPipelineColorBlendAttachmentState.address());
+
+            var pPipelineLayout = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
+            var pPipelineLayoutCreateInfo = VkPipelineLayoutCreateInfo.allocate(scope);
+            VkPipelineLayoutCreateInfo.sType$set(pPipelineLayoutCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO());
+
+            result = VkResult(vulkan_h.vkCreatePipelineLayout(MemoryAccess.getAddress(pVkDevice), pPipelineLayoutCreateInfo.address(), MemoryAddress.NULL, pPipelineLayout.address()));
             if (result != VK_SUCCESS) {
-                System.out.println("vkCreateShaderModule failed: " + result);
+                System.out.println("vkCreatePipelineLayout failed: " + result);
+                System.exit(-1);
+            }
+
+            var pAttachmentDescription = VkAttachmentDescription.allocate(scope);
+            VkAttachmentDescription.format$set(pAttachmentDescription, swapChainImageFormat);
+            VkAttachmentDescription.samples$set(pAttachmentDescription, vulkan_h.VK_SAMPLE_COUNT_1_BIT());
+            VkAttachmentDescription.loadOp$set(pAttachmentDescription, vulkan_h.VK_ATTACHMENT_LOAD_OP_CLEAR());
+            VkAttachmentDescription.storeOp$set(pAttachmentDescription, vulkan_h.VK_ATTACHMENT_STORE_OP_STORE());
+            VkAttachmentDescription.stencilLoadOp$set(pAttachmentDescription, vulkan_h.VK_ATTACHMENT_LOAD_OP_DONT_CARE());
+            VkAttachmentDescription.stencilStoreOp$set(pAttachmentDescription, vulkan_h.VK_ATTACHMENT_STORE_OP_DONT_CARE());
+            VkAttachmentDescription.initialLayout$set(pAttachmentDescription, vulkan_h.VK_IMAGE_LAYOUT_UNDEFINED());
+            VkAttachmentDescription.finalLayout$set(pAttachmentDescription, vulkan_h.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR());
+
+            var pAttachmentReference = VkAttachmentReference.allocate(scope);
+            VkAttachmentReference.attachment$set(pAttachmentReference, 0);
+            VkAttachmentReference.layout$set(pAttachmentReference, vulkan_h.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL());
+
+            var pSubpassDescription = VkSubpassDescription.allocate(scope);
+            VkSubpassDescription.pipelineBindPoint$set(pSubpassDescription, vulkan_h.VK_PIPELINE_BIND_POINT_GRAPHICS());
+            VkSubpassDescription.colorAttachmentCount$set(pSubpassDescription, 1);
+            VkSubpassDescription.pColorAttachments$set(pSubpassDescription, pAttachmentReference.address());
+
+            var pSubpassDependency = VkSubpassDependency.allocate(scope);
+            VkSubpassDependency.srcSubpass$set(pSubpassDependency, vulkan_h.VK_SUBPASS_EXTERNAL());
+            VkSubpassDependency.dstSubpass$set(pSubpassDependency, 0);
+            VkSubpassDependency.srcStageMask$set(pSubpassDependency, vulkan_h.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT());
+            VkSubpassDependency.srcAccessMask$set(pSubpassDependency, 0);
+            VkSubpassDependency.dstStageMask$set(pSubpassDependency, vulkan_h.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT());
+            VkSubpassDependency.dstAccessMask$set(pSubpassDependency, vulkan_h.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT());
+
+            var pRenderPass = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
+            var pRenderPassCreateInfo = VkRenderPassCreateInfo.allocate(scope);
+            VkRenderPassCreateInfo.sType$set(pRenderPassCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO());
+            VkRenderPassCreateInfo.attachmentCount$set(pRenderPassCreateInfo, 1);
+            VkRenderPassCreateInfo.pAttachments$set(pRenderPassCreateInfo, pAttachmentDescription.address());
+            VkRenderPassCreateInfo.subpassCount$set(pRenderPassCreateInfo, 1);
+            VkRenderPassCreateInfo.pSubpasses$set(pRenderPassCreateInfo, pSubpassDescription.address());
+            VkRenderPassCreateInfo.dependencyCount$set(pRenderPassCreateInfo, 1);
+            VkRenderPassCreateInfo.pDependencies$set(pRenderPassCreateInfo, pSubpassDependency.address());
+
+            result = VkResult(vulkan_h.vkCreateRenderPass(MemoryAccess.getAddress(pVkDevice), pRenderPassCreateInfo.address(), MemoryAddress.NULL, pRenderPass.address()));
+            if (result != VK_SUCCESS) {
+                System.out.println("vkCreateRenderPass failed: " + result);
+                System.exit(-1);
+            }
+
+            var pPipelineCreateInfo = VkGraphicsPipelineCreateInfo.allocate(scope);
+            VkGraphicsPipelineCreateInfo.sType$set(pPipelineCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO());
+            // If we change stageCount to 2 we get a crash....
+            // I think we are creating the pStages array incorrectly. This is also manifesting further down when trying
+            // to create arrays pWaitSemaphores, pSignalSemaphores, etc.
+            VkGraphicsPipelineCreateInfo.stageCount$set(pPipelineCreateInfo, 1);
+            MemorySegment pStages = SegmentAllocator.ofScope(scope).allocateArray(C_POINTER, new Addressable[]{
+                    pVertShaderStageInfo, pFragShaderStageInfo});
+            System.out.println("pStages: " + pStages);
+            System.out.println("pStages[0]: " + VkPipelineShaderStageCreateInfo.ofAddress(MemoryAccess.getAddressAtIndex(pStages, 0), scope));
+            System.out.println("pStages[0].sType: " + VkPipelineShaderStageCreateInfo.sType$get(VkPipelineShaderStageCreateInfo.ofAddress(MemoryAccess.getAddressAtIndex(pStages, 0), scope)));
+            System.out.println("pStages[1]: " + VkPipelineShaderStageCreateInfo.ofAddress(MemoryAccess.getAddressAtIndex(pStages, 1), scope));
+            System.out.println("pStages[1].sType: " + VkPipelineShaderStageCreateInfo.sType$get(VkPipelineShaderStageCreateInfo.ofAddress(MemoryAccess.getAddressAtIndex(pStages, 1), scope)));
+
+            VkGraphicsPipelineCreateInfo.pStages$set(pPipelineCreateInfo, MemoryAccess.getAddress(pStages));
+            VkGraphicsPipelineCreateInfo.pVertexInputState$set(pPipelineCreateInfo, pVertexInputStateInfo.address());
+            VkGraphicsPipelineCreateInfo.pInputAssemblyState$set(pPipelineCreateInfo, pPipelineInputAssemblyStateInfo.address());
+            VkGraphicsPipelineCreateInfo.pViewportState$set(pPipelineCreateInfo, pPipelineViewportStateInfo.address());
+            VkGraphicsPipelineCreateInfo.pRasterizationState$set(pPipelineCreateInfo, pPipelineRasterizationStateInfo.address());
+            VkGraphicsPipelineCreateInfo.pMultisampleState$set(pPipelineCreateInfo, pPipelineMultisampleStateInfo.address());
+            VkGraphicsPipelineCreateInfo.pDepthStencilState$set(pPipelineCreateInfo, MemoryAddress.NULL);
+            VkGraphicsPipelineCreateInfo.pColorBlendState$set(pPipelineCreateInfo, pPipelineColorBlendStateInfo.address());
+            VkGraphicsPipelineCreateInfo.pDynamicState$set(pPipelineCreateInfo, MemoryAddress.NULL);
+            VkGraphicsPipelineCreateInfo.layout$set(pPipelineCreateInfo, MemoryAccess.getAddress(pPipelineLayout));
+            VkGraphicsPipelineCreateInfo.renderPass$set(pPipelineCreateInfo, MemoryAccess.getAddress(pRenderPass));
+            VkGraphicsPipelineCreateInfo.subpass$set(pPipelineCreateInfo, 0);
+            VkGraphicsPipelineCreateInfo.basePipelineHandle$set(pPipelineCreateInfo, vulkan_h.VK_NULL_HANDLE());
+            VkGraphicsPipelineCreateInfo.basePipelineIndex$set(pPipelineCreateInfo, -1);
+
+            var pVkPipeline = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
+            result = VkResult(vulkan_h.vkCreateGraphicsPipelines(MemoryAccess.getAddress(pVkDevice), vulkan_h.VK_NULL_HANDLE(), 1, pPipelineCreateInfo.address(), MemoryAddress.NULL, pVkPipeline.address()));
+            if (result != VK_SUCCESS) {
+                System.out.println("vkCreateGraphicsPipelines failed: " + result);
+                System.exit(-1);
+            }
+
+            List<MemorySegment> swapChainFramebuffers = new ArrayList<>();
+            for (MemorySegment imageView : imageViews) {
+                var pVkFramebuffer = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
+                var pFramebufferCreateInfo = VkFramebufferCreateInfo.allocate(scope);
+                VkFramebufferCreateInfo.sType$set(pFramebufferCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO());
+                VkFramebufferCreateInfo.renderPass$set(pFramebufferCreateInfo, MemoryAccess.getAddress(pRenderPass));
+                VkFramebufferCreateInfo.attachmentCount$set(pFramebufferCreateInfo, 1);
+                VkFramebufferCreateInfo.pAttachments$set(pFramebufferCreateInfo, imageView.address());
+                VkFramebufferCreateInfo.width$set(pFramebufferCreateInfo, width);
+                VkFramebufferCreateInfo.height$set(pFramebufferCreateInfo, height);
+                VkFramebufferCreateInfo.layers$set(pFramebufferCreateInfo, 1);
+
+                result = VkResult(vulkan_h.vkCreateFramebuffer(MemoryAccess.getAddress(pVkDevice), pFramebufferCreateInfo.address(), MemoryAddress.NULL, pVkFramebuffer.address()));
+                if (result != VK_SUCCESS) {
+                    System.out.println("vkCreateFramebuffer failed: " + result);
+                    System.exit(-1);
+                }
+                swapChainFramebuffers.add(pVkFramebuffer);
+            }
+
+            var pVkCommandPool = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
+            var pCommandPoolCreateInfo = VkCommandPoolCreateInfo.allocate(scope);
+            VkCommandPoolCreateInfo.sType$set(pCommandPoolCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO());
+            VkCommandPoolCreateInfo.queueFamilyIndex$set(pCommandPoolCreateInfo, graphicsQueueFamily.queueFamilyIndex);
+
+            result = VkResult(vulkan_h.vkCreateCommandPool(MemoryAccess.getAddress(pVkDevice), pCommandPoolCreateInfo.address(), MemoryAddress.NULL, pVkCommandPool.address()));
+            if (result != VK_SUCCESS) {
+                System.out.println("vkCreateCommandPool failed: " + result);
+                System.exit(-1);
+            }
+
+
+            MemorySegment pCommandBuffers = SegmentAllocator.ofScope(scope).allocate(
+                    C_POINTER.byteSize() * swapChainFramebuffers.size());
+            var pCommandBufferAllocateInfo = VkCommandBufferAllocateInfo.allocate(scope);
+            VkCommandBufferAllocateInfo.sType$set(pCommandBufferAllocateInfo, vulkan_h.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO());
+            VkCommandBufferAllocateInfo.commandPool$set(pCommandBufferAllocateInfo, MemoryAccess.getAddress(pVkCommandPool));
+            VkCommandBufferAllocateInfo.level$set(pCommandBufferAllocateInfo, vulkan_h.VK_COMMAND_BUFFER_LEVEL_PRIMARY());
+            VkCommandBufferAllocateInfo.commandBufferCount$set(pCommandBufferAllocateInfo, swapChainFramebuffers.size());
+
+            result = VkResult(vulkan_h.vkAllocateCommandBuffers(MemoryAccess.getAddress(pVkDevice), pCommandBufferAllocateInfo.address(), pCommandBuffers.address()));
+            if (result != VK_SUCCESS) {
+                System.out.println("vkAllocateCommandBuffers failed: " + result);
+                System.exit(-1);
+            }
+
+            for (int i = 0; i < swapChainFramebuffers.size(); i++) {
+                var pCommandBufferBeginInfo = VkCommandBufferBeginInfo.allocate(scope);
+                VkCommandBufferBeginInfo.sType$set(pCommandBufferBeginInfo, vulkan_h.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO());
+
+                result = VkResult(vulkan_h.vkBeginCommandBuffer(MemoryAccess.getAddressAtIndex(pCommandBuffers, i), pCommandBufferBeginInfo.address()));
+                if (result != VK_SUCCESS) {
+                    System.out.println("vkBeginCommandBuffer failed: " + result);
+                    System.exit(-1);
+                }
+
+                var pRenderPassBeginInfo = VkRenderPassBeginInfo.allocate(scope);
+                VkRenderPassBeginInfo.sType$set(pRenderPassBeginInfo, vulkan_h.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO());
+                VkRenderPassBeginInfo.renderPass$set(pRenderPassBeginInfo, MemoryAccess.getAddress(pRenderPass));
+                VkRenderPassBeginInfo.framebuffer$set(pRenderPassBeginInfo, MemoryAccess.getAddress(swapChainFramebuffers.get(i)));
+                VkOffset2D.x$set(VkRect2D.offset$slice(VkRenderPassBeginInfo.renderArea$slice(pRenderPassBeginInfo)), 0);
+                VkOffset2D.y$set(VkRect2D.offset$slice(VkRenderPassBeginInfo.renderArea$slice(pRenderPassBeginInfo)), 0);
+                VkExtent2D.width$set(VkRect2D.extent$slice(VkRenderPassBeginInfo.renderArea$slice(pRenderPassBeginInfo)), width);
+                VkExtent2D.height$set(VkRect2D.extent$slice(VkRenderPassBeginInfo.renderArea$slice(pRenderPassBeginInfo)), height);
+                VkRenderPassBeginInfo.clearValueCount$set(pRenderPassBeginInfo, 1);
+                var pClearValue = VkClearValue.allocate(scope);
+                MemoryAccess.setFloatAtIndex(VkClearColorValue.float32$slice(VkClearValue.color$slice(pClearValue)), 0, 0.0f);
+                MemoryAccess.setFloatAtIndex(VkClearColorValue.float32$slice(VkClearValue.color$slice(pClearValue)), 1, 0.0f);
+                MemoryAccess.setFloatAtIndex(VkClearColorValue.float32$slice(VkClearValue.color$slice(pClearValue)), 2, 0.0f);
+                MemoryAccess.setFloatAtIndex(VkClearColorValue.float32$slice(VkClearValue.color$slice(pClearValue)), 3, 1.0f);
+
+                vulkan_h.vkCmdBeginRenderPass(MemoryAccess.getAddressAtIndex(pCommandBuffers, i), pRenderPassBeginInfo.address(), vulkan_h.VK_SUBPASS_CONTENTS_INLINE());
+                vulkan_h.vkCmdBindPipeline(MemoryAccess.getAddressAtIndex(pCommandBuffers, i), vulkan_h.VK_PIPELINE_BIND_POINT_GRAPHICS(), MemoryAccess.getAddress(pVkPipeline));
+                vulkan_h.vkCmdDraw(MemoryAccess.getAddressAtIndex(pCommandBuffers, i), 3, 1, 0, 0);
+                vulkan_h.vkCmdEndRenderPass(MemoryAccess.getAddressAtIndex(pCommandBuffers, i));
+                result = VkResult(vulkan_h.vkEndCommandBuffer(MemoryAccess.getAddressAtIndex(pCommandBuffers, i)));
+                if (result != VK_SUCCESS) {
+                    System.out.println("vkEndCommandBuffer failed: " + result);
+                    System.exit(-1);
+                }
+            }
+
+            var pSemaphoreCreateInfo = VkSemaphoreCreateInfo.allocate(scope);
+            VkSemaphoreCreateInfo.sType$set(pSemaphoreCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO());
+
+            var pImageAvailableSemaphore = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
+            var pRenderFinishedSemaphore = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
+            result = VkResult(vulkan_h.vkCreateSemaphore(MemoryAccess.getAddress(pVkDevice), pSemaphoreCreateInfo.address(), MemoryAddress.NULL, pImageAvailableSemaphore.address()));
+            if (result != VK_SUCCESS) {
+                System.out.println("vkCreateSemaphore failed: " + result);
+                System.exit(-1);
+            }
+            result = VkResult(vulkan_h.vkCreateSemaphore(MemoryAccess.getAddress(pVkDevice), pSemaphoreCreateInfo.address(), MemoryAddress.NULL, pRenderFinishedSemaphore.address()));
+            if (result != VK_SUCCESS) {
+                System.out.println("vkCreateSemaphore failed: " + result);
                 System.exit(-1);
             }
 
@@ -431,11 +716,70 @@ public class Vulkan {
                 if (getMessageRet == -1) {
                     // handle the error and possibly exit
                 } else {
+                    var pImageIndex = SegmentAllocator.ofScope(scope).allocate(C_INT, -1);
+                    vulkan_h.vkAcquireNextImageKHR(MemoryAccess.getAddress(pVkDevice),
+                            MemoryAccess.getAddress(pSwapChain), Long.MAX_VALUE,
+                            MemoryAccess.getAddress(pImageAvailableSemaphore),
+                            vulkan_h.VK_NULL_HANDLE(), pImageIndex.address());
+
+                    var pSubmitInfo = VkSubmitInfo.allocate(scope);
+                    VkSubmitInfo.sType$set(pSubmitInfo, vulkan_h.VK_STRUCTURE_TYPE_SUBMIT_INFO());
+                    VkSubmitInfo.waitSemaphoreCount$set(pSubmitInfo, 1);
+                    VkSubmitInfo.pWaitSemaphores$set(pSubmitInfo, MemoryAccess.getAddress(SegmentAllocator.ofScope(scope).allocateArray(C_POINTER, new Addressable[]{
+                            pImageAvailableSemaphore})));
+                    VkSubmitInfo.pWaitDstStageMask$set(pSubmitInfo, MemoryAccess.getAddress(SegmentAllocator.ofScope(scope).allocateArray(C_POINTER, new Addressable[]{
+                            SegmentAllocator.ofScope(scope).allocate(C_INT, vulkan_h.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT())})));
+                    VkSubmitInfo.commandBufferCount$set(pSubmitInfo, 0);
+                    VkSubmitInfo.pCommandBuffers$set(pSubmitInfo, MemoryAccess.getAddressAtIndex(pCommandBuffers, MemoryAccess.getInt(pImageIndex)));
+                    VkSubmitInfo.signalSemaphoreCount$set(pSubmitInfo, 1);
+                    VkSubmitInfo.pSignalSemaphores$set(pSubmitInfo, MemoryAccess.getAddress(SegmentAllocator.ofScope(scope).allocateArray(C_POINTER, new Addressable[]{
+                            pRenderFinishedSemaphore})));
+
+                    result = VkResult(vulkan_h.vkQueueSubmit(MemoryAccess.getAddress(pVkGraphicsQueue), 1, pSubmitInfo.address(), vulkan_h.VK_NULL_HANDLE()));
+                    if (result != VK_SUCCESS) {
+                        System.out.println("vkQueueSubmit failed: " + result);
+                        System.exit(-1);
+                    }
+
+                    var pPresentInfoKHR = VkPresentInfoKHR.allocate(scope);
+                    VkPresentInfoKHR.sType$set(pPresentInfoKHR, vulkan_h.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR());
+                    VkPresentInfoKHR.waitSemaphoreCount$set(pPresentInfoKHR, 1);
+                    VkPresentInfoKHR.pWaitSemaphores$set(pPresentInfoKHR, MemoryAccess.getAddress(SegmentAllocator.ofScope(scope).allocateArray(C_POINTER, new Addressable[]{
+                            pImageAvailableSemaphore})));
+                    VkPresentInfoKHR.swapchainCount$set(pPresentInfoKHR, 1);
+                    VkPresentInfoKHR.pSwapchains$set(pPresentInfoKHR, pSwapChain.address());
+                    VkPresentInfoKHR.pImageIndices$set(pPresentInfoKHR, pImageIndex.address());
+                    vulkan_h.vkQueuePresentKHR(MemoryAccess.getAddress(pVkGraphicsQueue), pPresentInfoKHR.address());
+
                     Windows_h.TranslateMessage(pMsg.address());
                     Windows_h.DispatchMessageW(pMsg.address());
                 }
             }
         }
+    }
+
+    private static MemorySegment getShaderModule(MemoryAddress vkDevice, byte[] shaderSpv, ResourceScope scope) {
+        var pShaderModuleCreateInfo = VkShaderModuleCreateInfo.allocate(scope);
+        VkShaderModuleCreateInfo.sType$set(pShaderModuleCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO());
+        VkShaderModuleCreateInfo.codeSize$set(pShaderModuleCreateInfo, shaderSpv.length);
+        IntBuffer intBuf = ByteBuffer.wrap(shaderSpv)
+                .order(ByteOrder.nativeOrder())
+                .asIntBuffer();
+        int[] array = new int[intBuf.remaining()];
+        intBuf.get(array);
+        System.out.println("shaderSpv bytes: " + shaderSpv.length);
+        VkShaderModuleCreateInfo.pCode$set(pShaderModuleCreateInfo, SegmentAllocator.ofScope(scope).allocateArray(C_CHAR,
+                shaderSpv).address());
+
+        var pShaderModule = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
+        var result = VkResult(vulkan_h.vkCreateShaderModule(vkDevice,
+                pShaderModuleCreateInfo.address(), MemoryAddress.NULL, pShaderModule.address()));
+        if (result != VK_SUCCESS) {
+            System.out.println("vkCreateShaderModule failed: " + result);
+            System.exit(-1);
+        }
+
+        return pShaderModule;
     }
 
     private static void createWin32Window(ResourceScope scope) {
@@ -531,7 +875,7 @@ public class Vulkan {
                     System.out.println("physical device does not support win32 presentation!");
                 }
 
-                queueFamilies.add(new QueueFamily(physicalDeviceAddr, i, queueCount, (queueFlags & vulkan_h.VK_QUEUE_GRAPHICS_BIT()) != 0,
+                queueFamilies.add(new QueueFamily(physicalDeviceAddr, queueFamily, i, queueCount, (queueFlags & vulkan_h.VK_QUEUE_GRAPHICS_BIT()) != 0,
                         (queueFlags & vulkan_h.VK_QUEUE_COMPUTE_BIT()) != 0,
                         (queueFlags & vulkan_h.VK_QUEUE_TRANSFER_BIT()) != 0,
                         (queueFlags & vulkan_h.VK_QUEUE_SPARSE_BINDING_BIT()) != 0,
@@ -564,6 +908,7 @@ public class Vulkan {
 
     private static class QueueFamily {
         private final MemoryAddress physicalDevice;
+        private final MemorySegment queue;
         private final int queueFamilyIndex;
         private final int numQueues;
         private final boolean supportsGraphicsOperations;
@@ -572,10 +917,11 @@ public class Vulkan {
         private final boolean supportsSparseMemoryManagementOperations;
         private final boolean supportsPresentToSurface;
 
-        private QueueFamily(MemoryAddress physicalDevice, int queueFamilyIndex, int numQueues, boolean supportsGraphicsOperations,
+        private QueueFamily(MemoryAddress physicalDevice, MemorySegment queue, int queueFamilyIndex, int numQueues, boolean supportsGraphicsOperations,
                             boolean supportsComputeOperations, boolean supportsTransferOperations,
                             boolean supportsSparseMemoryManagementOperations, boolean supportsPresentToSurface) {
             this.physicalDevice = physicalDevice;
+            this.queue = queue;
             this.queueFamilyIndex = queueFamilyIndex;
             this.numQueues = numQueues;
             this.supportsGraphicsOperations = supportsGraphicsOperations;
