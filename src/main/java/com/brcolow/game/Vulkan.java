@@ -1,7 +1,9 @@
 package com.brcolow.game;
 
+import com.brcolow.vulkanapi.PFN_vkCreateDebugUtilsMessengerEXT;
 import com.brcolow.vulkanapi.VkApplicationInfo;
 import com.brcolow.vulkanapi.VkComponentMapping;
+import com.brcolow.vulkanapi.VkDebugUtilsMessengerCreateInfoEXT;
 import com.brcolow.vulkanapi.VkDeviceCreateInfo;
 import com.brcolow.vulkanapi.VkDeviceQueueCreateInfo;
 import com.brcolow.vulkanapi.VkExtent2D;
@@ -12,6 +14,7 @@ import com.brcolow.vulkanapi.VkPhysicalDeviceFeatures;
 import com.brcolow.vulkanapi.VkPhysicalDeviceMemoryProperties;
 import com.brcolow.vulkanapi.VkPhysicalDeviceProperties;
 import com.brcolow.vulkanapi.VkQueueFamilyProperties;
+import com.brcolow.vulkanapi.VkShaderModuleCreateInfo;
 import com.brcolow.vulkanapi.VkSurfaceCapabilitiesKHR;
 import com.brcolow.vulkanapi.VkSwapchainCreateInfoKHR;
 import com.brcolow.vulkanapi.VkWin32SurfaceCreateInfoKHR;
@@ -22,6 +25,7 @@ import com.brcolow.winapi.WNDCLASSEXW;
 import com.brcolow.winapi.Windows_h;
 import jdk.incubator.foreign.Addressable;
 import jdk.incubator.foreign.CLinker;
+import jdk.incubator.foreign.FunctionDescriptor;
 import jdk.incubator.foreign.MemoryAccess;
 import jdk.incubator.foreign.MemoryAddress;
 import jdk.incubator.foreign.MemorySegment;
@@ -33,6 +37,9 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.net.URISyntaxException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.IntBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -41,14 +48,18 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
-import static com.brcolow.game.VKResult.*;
-import static com.brcolow.game.VkPhysicalDeviceType.*;
+import static com.brcolow.game.VKResult.VK_SUCCESS;
+import static com.brcolow.game.VKResult.VkResult;
+import static com.brcolow.game.VkPhysicalDeviceType.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+import static com.brcolow.game.VkPhysicalDeviceType.VkPhysicalDeviceType;
+import static jdk.incubator.foreign.CLinker.C_CHAR;
 import static jdk.incubator.foreign.CLinker.C_DOUBLE;
 import static jdk.incubator.foreign.CLinker.C_INT;
 import static jdk.incubator.foreign.CLinker.C_POINTER;
 
 // https://github.com/ShabbyX/vktut/blob/master/tut1/tut1.c
 public class Vulkan {
+    private static final boolean DEBUG = true;
     private static MemoryAddress hwndMain;
 
     public static void main(String[] args) {
@@ -69,13 +80,23 @@ public class Vulkan {
             MemorySegment pInstanceCreateInfo = VkInstanceCreateInfo.allocate(scope);
             VkInstanceCreateInfo.sType$set(pInstanceCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO());
             VkInstanceCreateInfo.pApplicationInfo$set(pInstanceCreateInfo, pAppInfo.address());
-            VkInstanceCreateInfo.enabledExtensionCount$set(pInstanceCreateInfo, 2);
+            int enabledExtensionCount = DEBUG ? 3 : 2;
+
+            VkInstanceCreateInfo.enabledExtensionCount$set(pInstanceCreateInfo, enabledExtensionCount);
+            Addressable[] enabledExtensionNames = DEBUG ? new Addressable[]{
+                    CLinker.toCString("VK_KHR_surface", scope),
+                    CLinker.toCString("VK_KHR_win32_surface", scope),
+                    vulkan_h.VK_EXT_DEBUG_UTILS_EXTENSION_NAME()}
+                    : new Addressable[]{
+                    CLinker.toCString("VK_KHR_surface", scope),
+                    CLinker.toCString("VK_KHR_win32_surface", scope)};
             VkInstanceCreateInfo.ppEnabledExtensionNames$set(pInstanceCreateInfo,
-                    SegmentAllocator.ofScope(scope).allocateArray(C_POINTER,
-                            new Addressable[]{
-                                    CLinker.toCString("VK_KHR_surface", scope),
-                                    CLinker.toCString("VK_KHR_win32_surface", scope)
-                    }).address());
+                    SegmentAllocator.ofScope(scope).allocateArray(C_POINTER, enabledExtensionNames).address());
+            if (DEBUG) {
+                VkInstanceCreateInfo.enabledLayerCount$set(pInstanceCreateInfo, 1);
+                VkInstanceCreateInfo.ppEnabledLayerNames$set(pInstanceCreateInfo, SegmentAllocator.ofScope(scope)
+                        .allocateArray(C_POINTER, new Addressable[]{CLinker.toCString("VK_LAYER_KHRONOS_validation", scope)}).address());
+            }
 
             // VKInstance is an opaque pointer defined by VK_DEFINE_HANDLE macro - so it has C_POINTER byte size (64-bit
             // on 64-bit system).
@@ -86,6 +107,50 @@ public class Vulkan {
             if (result != VK_SUCCESS) {
                 System.out.println("vkCreateInstance failed: " + result);
                 System.exit(-1);
+            }
+
+            if (DEBUG) {
+                MethodHandle debugCallbackHandle = null;
+                try {
+                    debugCallbackHandle = MethodHandles.lookup()
+                            .findStatic(VulkanDebug.class, "DebugCallbackFunc",
+                                    MethodType.methodType(int.class, int.class, int.class, MemoryAddress.class, MemoryAddress.class));
+                } catch (NoSuchMethodException | IllegalAccessException ex) {
+                    ex.printStackTrace();
+                    System.exit(-1);
+                }
+
+                if (debugCallbackHandle == null) {
+                    System.out.println("debugCallbackHandle was null!");
+                    System.exit(-1);
+                }
+                MemoryAddress debugCallbackFunc = CLinker.getInstance().upcallStub(debugCallbackHandle,
+                       VulkanDebug.DebugCallback$FUNC, scope);
+
+                var pDebugUtilsMessengerCreateInfo = VkDebugUtilsMessengerCreateInfoEXT.allocate(scope);
+                VkDebugUtilsMessengerCreateInfoEXT.sType$set(pDebugUtilsMessengerCreateInfo,
+                        vulkan_h.VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT());
+                VkDebugUtilsMessengerCreateInfoEXT.messageSeverity$set(pDebugUtilsMessengerCreateInfo,
+                        vulkan_h.VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT() |
+                                vulkan_h.VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT() |
+                                vulkan_h.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT());
+                VkDebugUtilsMessengerCreateInfoEXT.messageType$set(pDebugUtilsMessengerCreateInfo,
+                        vulkan_h.VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT() |
+                                vulkan_h.VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT() |
+                                vulkan_h.VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT());
+                VkDebugUtilsMessengerCreateInfoEXT.pfnUserCallback$set(pDebugUtilsMessengerCreateInfo, debugCallbackFunc);
+                VkDebugUtilsMessengerCreateInfoEXT.pUserData$set(pDebugUtilsMessengerCreateInfo, MemoryAddress.NULL);
+
+                PFN_vkCreateDebugUtilsMessengerEXT vkCreateDebugUtilsMessengerEXTFunc = PFN_vkCreateDebugUtilsMessengerEXT.ofAddress(
+                        vulkan_h.vkGetInstanceProcAddr(MemoryAccess.getAddress(pVkInstance),
+                                CLinker.toCString("vkCreateDebugUtilsMessengerEXT", scope)));
+                var pDebugMessenger = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
+                result = VkResult(vkCreateDebugUtilsMessengerEXTFunc.apply(MemoryAccess.getAddress(pVkInstance),
+                        pDebugUtilsMessengerCreateInfo.address(), MemoryAddress.NULL, pDebugMessenger.address()));
+                if (result != VK_SUCCESS) {
+                    System.out.println("vkCreateDebugUtilsMessengerEXT failed: " + result);
+                    System.exit(-1);
+                }
             }
 
             createWin32Window(scope);
@@ -320,13 +385,38 @@ public class Vulkan {
                 }
             }
 
-            byte[] vertShaderBytes;
-            byte[] fragShaderBytes;
+            byte[] vertShaderBytes = null;
+            byte[] fragShaderBytes = null;
             try {
                 vertShaderBytes = Files.readAllBytes(Paths.get(Vulkan.class.getResource("vert.spv").toURI()));
                 fragShaderBytes = Files.readAllBytes(Paths.get(Vulkan.class.getResource("frag.spv").toURI()));
             } catch (IOException | URISyntaxException e) {
                 System.out.println("could not read shader file(s)");
+                System.exit(-1);
+            }
+
+            var pShaderModuleCreateInfo = VkShaderModuleCreateInfo.allocate(scope);
+            VkShaderModuleCreateInfo.sType$set(pShaderModuleCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO());
+            VkShaderModuleCreateInfo.codeSize$set(pShaderModuleCreateInfo, vertShaderBytes.length);
+            IntBuffer intBuf =
+                    ByteBuffer.wrap(vertShaderBytes)
+                            .order(ByteOrder.nativeOrder())
+                            .asIntBuffer();
+            int[] array = new int[intBuf.remaining()];
+            intBuf.get(array);
+            // MemorySegment arr = MemorySegment.allocateNative(MemoryLayout.sequenceLayout(vertShaderBytes.length / 4, JAVA_INT), scope);
+            // for (int i = 0; i <= array.length - 1 ; i++) {
+                // MemoryAccess.setIntAtIndex(arr, i, array[i]);
+            // }
+            System.out.println("vertShaderBytes: " + vertShaderBytes.length);
+            VkShaderModuleCreateInfo.pCode$set(pShaderModuleCreateInfo, SegmentAllocator.ofScope(scope).allocateArray(C_CHAR,
+                    vertShaderBytes).address());
+
+            var pShaderModule = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
+            result = VkResult(vulkan_h.vkCreateShaderModule(graphicsQueueFamily.physicalDevice,
+                    pShaderModuleCreateInfo.address(), MemoryAddress.NULL, pShaderModule.address()));
+            if (result != VK_SUCCESS) {
+                System.out.println("vkCreateShaderModule( failed: " + result);
                 System.exit(-1);
             }
 
