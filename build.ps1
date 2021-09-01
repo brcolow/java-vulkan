@@ -9,5 +9,14 @@ cp vert.spv .\target\classes\com\brcolow\game\vert.spv
 cp frag.spv .\target\classes\com\brcolow\game\frag.spv
 rm vert.spv
 rm frag.spv
-javac src\main\java\com\brcolow\game\VulkanDebug.java src\main\java\com\brcolow\game\VkResult.java src\main\java\com\brcolow\game\Vulkan.java src\main\java\com\brcolow\game\WindowProc.java src\main\java\com\brcolow\game\VkPhysicalDeviceType.java -d .\target\classes --source-path .\src\main\java --module-path .\target\classes -target 17 -source 17 -encoding UTF-8 --enable-preview --module-version 0.0.1-SNAPSHOT
+javac `
+src\main\java\com\brcolow\game\VkDebugUtilsMessageSeverityFlagBitsEXT.java `
+src\main\java\com\brcolow\game\VkDebugUtilsMessageTypeFlagBitsEXT.java `
+src\main\java\com\brcolow\game\VkPhysicalDeviceType.java `
+src\main\java\com\brcolow\game\VkResult.java `
+src\main\java\com\brcolow\game\VkStructureType.java `
+src\main\java\com\brcolow\game\VulkanDebug.java `
+src\main\java\com\brcolow\game\WindowProc.java `
+src\main\java\com\brcolow\game\Vulkan.java `
+-d .\target\classes --source-path .\src\main\java --module-path .\target\classes -target 17 -source 17 -encoding UTF-8 --enable-preview --module-version 0.0.1-SNAPSHOT
 java --add-modules jdk.incubator.foreign --enable-native-access=com.brcolow.vulkan --module-path .\target\classes --module com.brcolow.vulkan/com.brcolow.game.Vulkan

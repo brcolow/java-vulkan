@@ -25,8 +25,11 @@ public class VulkanDebug {
     );
 
     public static int DebugCallbackFunc(int messageSeverity, int messageTypes, MemoryAddress pCallbackData, MemoryAddress pUserData) {
-        StringBuilder messageBuilder = new StringBuilder();
         VkDebugUtilsMessageSeverityFlagBitsEXT severity = VkDebugUtilsMessageSeverityFlagBitsEXT(messageSeverity);
+        if (messageSeverity < vulkan_h.VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT()) {
+            return vulkan_h.VK_FALSE();
+        }
+        StringBuilder messageBuilder = new StringBuilder();
         List<String> messageTypesStr = new ArrayList<>();
         if ((messageTypes & vulkan_h.VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT()) != 0) {
             messageTypesStr.add("GENERAL");

@@ -360,6 +360,8 @@ public class Vulkan {
                     pSwapChainImagesCount.address(),
                     pSwapChainImages.address());
 
+            var pImageView = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
+            List<MemorySegment> imageViews = new ArrayList<>();
             for (int i = 0; i < numSwapChainImages; i++) {
                 var pImageViewCreateInfo = VkImageViewCreateInfo.allocate(scope);
                 VkImageViewCreateInfo.sType$set(pImageViewCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO());
@@ -379,12 +381,15 @@ public class Vulkan {
                 if (VkResult(vulkan_h.vkCreateImageView(MemoryAccess.getAddress(pVkDevice),
                         pImageViewCreateInfo.address(),
                         MemoryAddress.NULL,
-                        MemoryAccess.getAddressAtIndex(pSwapChainImages, i))) != VK_SUCCESS) {
+                        pImageView)) != VK_SUCCESS) {
                     System.out.println("vkCreateImageView failed!");
                     System.exit(-1);
                 }
+
+                imageViews.add(pImageView);
             }
 
+            System.out.println("imageViews: " + imageViews);
             byte[] vertShaderBytes = null;
             byte[] fragShaderBytes = null;
             try {
@@ -413,10 +418,10 @@ public class Vulkan {
                     vertShaderBytes).address());
 
             var pShaderModule = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
-            result = VkResult(vulkan_h.vkCreateShaderModule(graphicsQueueFamily.physicalDevice,
+            result = VkResult(vulkan_h.vkCreateShaderModule(MemoryAccess.getAddress(pVkDevice),
                     pShaderModuleCreateInfo.address(), MemoryAddress.NULL, pShaderModule.address()));
             if (result != VK_SUCCESS) {
-                System.out.println("vkCreateShaderModule( failed: " + result);
+                System.out.println("vkCreateShaderModule failed: " + result);
                 System.exit(-1);
             }
 
@@ -520,7 +525,11 @@ public class Vulkan {
                 int queueFlags = VkQueueFamilyProperties.queueFlags$get(queueFamily);
 
                 MemorySegment pPresentSupported = SegmentAllocator.ofScope(scope).allocate(C_INT, -1);
-                vulkan_h.vkGetPhysicalDeviceSurfaceSupportKHR(physicalDeviceAddr, i, surface.address(), pPresentSupported.address());
+                vulkan_h.vkGetPhysicalDeviceSurfaceSupportKHR(physicalDeviceAddr, i, MemoryAccess.getAddress(surface), pPresentSupported.address());
+
+                if (vulkan_h.vkGetPhysicalDeviceWin32PresentationSupportKHR(physicalDeviceAddr, i) != vulkan_h.VK_TRUE()) {
+                    System.out.println("physical device does not support win32 presentation!");
+                }
 
                 queueFamilies.add(new QueueFamily(physicalDeviceAddr, i, queueCount, (queueFlags & vulkan_h.VK_QUEUE_GRAPHICS_BIT()) != 0,
                         (queueFlags & vulkan_h.VK_QUEUE_COMPUTE_BIT()) != 0,
