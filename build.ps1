@@ -1,7 +1,6 @@
 $jdk = "C:\Program Files\Java\jdk-19"
 New-Alias -Name javac -Value "$jdk\bin\javac.exe" -Force
 New-Alias -Name java -Value "$jdk\bin\java.exe" -Force
-$vulkanSdk = "C:\VulkanSDK\1.2.182.0\"
 $glslc = "C:\Users\brcolow\dev\glslc.exe"
 New-Alias -Name glslc -Value "$glslc" -Force
 glslc src\main\shader\triangle.vert -o vert.spv
