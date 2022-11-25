@@ -88,6 +88,14 @@ import static com.brcolow.vulkanapi.vulkan_h.VkInstance;
 import static com.brcolow.vulkanapi.vulkan_h.VkPhysicalDevice;
 import static com.brcolow.vulkanapi.vulkan_h.VkSurfaceKHR;
 import static com.brcolow.vulkanapi.vulkan_h.VkSwapchainKHR;
+import static com.brcolow.vulkanapi.vulkan_h.VkImage;
+import static com.brcolow.vulkanapi.vulkan_h.VkShaderModule;
+import static com.brcolow.vulkanapi.vulkan_h.VkPipelineLayout;
+import static com.brcolow.vulkanapi.vulkan_h.VkRenderPass;
+import static com.brcolow.vulkanapi.vulkan_h.VkCommandPool;
+import static com.brcolow.vulkanapi.vulkan_h.VkFramebuffer;
+import static com.brcolow.vulkanapi.vulkan_h.VkPipeline;
+import static com.brcolow.vulkanapi.vulkan_h.VkCommandBuffer;
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
 // https://github.com/ShabbyX/vktut/blob/master/tut1/tut1.c
@@ -412,8 +420,9 @@ public class Vulkan {
             VkSwapchainCreateInfoKHR.oldSwapchain$set(pSwapchainCreateInfoKHR, vulkan_h.VK_NULL_HANDLE());
 
             var ppSwapChain = scope.allocate(C_POINTER.byteSize());
+            var vkDevice = MemorySegment.ofAddress(ppVkDevice.get(C_POINTER, 0).address(), VkDevice.byteSize(), scope);
             result = VkResult(vulkan_h.vkCreateSwapchainKHR(
-                    MemorySegment.ofAddress(ppVkDevice.get(C_POINTER, 0).address(), VkDevice.byteSize(), scope),
+                    vkDevice,
                     pSwapchainCreateInfoKHR, MemoryAddress.NULL, ppSwapChain.address()));
             if (result != VK_SUCCESS) {
                 System.out.println("vkCreateSwapchainKHR failed: " + result);
@@ -425,7 +434,7 @@ public class Vulkan {
             var pSwapChainImagesCount = scope.allocate(C_INT, -1);
             var pSwapChain = ppSwapChain.get(C_POINTER, 0);
             vulkan_h.vkGetSwapchainImagesKHR(
-                    MemorySegment.ofAddress(ppVkDevice.get(C_POINTER, 0).address(), VkDevice.byteSize(), scope),
+                    vkDevice,
                     MemorySegment.ofAddress(pSwapChain, VkSwapchainKHR.byteSize(), scope),
                     pSwapChainImagesCount,
                     MemoryAddress.NULL);
@@ -437,20 +446,20 @@ public class Vulkan {
 
             System.out.println("numSwapChainImages: " + numSwapChainImages);
 
-          /*
-            MemorySegment pSwapChainImages = SegmentAllocator.ofScope(scope).allocate(
-                    C_POINTER.byteSize() * numSwapChainImages);
-            vulkan_h.vkGetSwapchainImagesKHR(MemoryAccess.getAddress(pVkDevice),
-                    MemoryAccess.getAddress(ppSwapChain),
-                    pSwapChainImagesCount.address(),
-                    pSwapChainImages.address());
 
-            var pImageView = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
+            MemorySegment ppSwapChainImages = scope.allocate(
+                    C_POINTER.byteSize() * numSwapChainImages);
+            vulkan_h.vkGetSwapchainImagesKHR(vkDevice,
+                    MemorySegment.ofAddress(pSwapChain, VkSwapchainKHR.byteSize(), scope),
+                    pSwapChainImagesCount,
+                    ppSwapChainImages.address());
+
+            var ppImageView = scope.allocate(C_POINTER.byteSize());
             List<MemorySegment> imageViews = new ArrayList<>();
             for (int i = 0; i < numSwapChainImages; i++) {
                 var pImageViewCreateInfo = VkImageViewCreateInfo.allocate(scope);
                 VkImageViewCreateInfo.sType$set(pImageViewCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO());
-                VkImageViewCreateInfo.image$set(pImageViewCreateInfo, MemoryAccess.getAddressAtIndex(pSwapChainImages, i).address());
+                VkImageViewCreateInfo.image$set(pImageViewCreateInfo, MemorySegment.ofAddress(ppSwapChainImages.get(C_POINTER, i * C_POINTER.byteSize()).address(), VkImage.byteSize(), scope).address());
                 VkImageViewCreateInfo.viewType$set(pImageViewCreateInfo, vulkan_h.VK_IMAGE_VIEW_TYPE_2D());
                 VkImageViewCreateInfo.format$set(pImageViewCreateInfo, swapChainImageFormat);
                 VkComponentMapping.r$set(VkImageViewCreateInfo.components$slice(pImageViewCreateInfo), vulkan_h.VK_COMPONENT_SWIZZLE_IDENTITY());
@@ -463,14 +472,16 @@ public class Vulkan {
                 VkImageSubresourceRange.baseArrayLayer$set(VkImageViewCreateInfo.subresourceRange$slice(pImageViewCreateInfo), 0);
                 VkImageSubresourceRange.layerCount$set(VkImageViewCreateInfo.subresourceRange$slice(pImageViewCreateInfo), 1);
 
-                result = VkResult(vulkan_h.vkCreateImageView(MemoryAccess.getAddress(pVkDevice),
-                        pImageViewCreateInfo.address(), MemoryAddress.NULL, pImageView));
+                result = VkResult(vulkan_h.vkCreateImageView(vkDevice,
+                        pImageViewCreateInfo, MemoryAddress.NULL, ppImageView.address()));
                 if (result != VK_SUCCESS) {
                     System.out.println("vkCreateImageView failed: " + result);
                     System.exit(-1);
+                } else {
+                    System.out.println("vkCreateImageView succeeded");
                 }
 
-                imageViews.add(pImageView);
+                imageViews.add(ppImageView);
             }
 
             System.out.println("imageViews: " + imageViews);
@@ -484,20 +495,20 @@ public class Vulkan {
                 System.out.println("could not read shader file(s)");
                 System.exit(-1);
             }
-            var pVertShaderModule = getShaderModule(MemoryAccess.getAddress(pVkDevice), vertShaderBytes, scope);
-            var pFragShaderModule = getShaderModule(MemoryAccess.getAddress(pVkDevice), fragShaderBytes, scope);
+            var ppVertShaderModule = getShaderModule(vkDevice, vertShaderBytes, scope);
+            var ppFragShaderModule = getShaderModule(vkDevice, fragShaderBytes, scope);
 
             var pVertShaderStageInfo = VkPipelineShaderStageCreateInfo.allocate(scope);
             VkPipelineShaderStageCreateInfo.sType$set(pVertShaderStageInfo, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO());
             VkPipelineShaderStageCreateInfo.stage$set(pVertShaderStageInfo, vulkan_h.VK_SHADER_STAGE_VERTEX_BIT());
-            VkPipelineShaderStageCreateInfo.module$set(pVertShaderStageInfo, MemoryAccess.getAddress(pVertShaderModule));
-            VkPipelineShaderStageCreateInfo.pName$set(pVertShaderStageInfo, CLinker.toCString("main", scope).address());
+            VkPipelineShaderStageCreateInfo.module$set(pVertShaderStageInfo, MemorySegment.ofAddress(ppVertShaderModule.get(C_POINTER, 0).address(), VkShaderModule.byteSize(), scope).address());
+            VkPipelineShaderStageCreateInfo.pName$set(pVertShaderStageInfo, scope.allocateUtf8String("main").address());
 
             var pFragShaderStageInfo = VkPipelineShaderStageCreateInfo.allocate(scope);
             VkPipelineShaderStageCreateInfo.sType$set(pFragShaderStageInfo, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO());
             VkPipelineShaderStageCreateInfo.stage$set(pFragShaderStageInfo, vulkan_h.VK_SHADER_STAGE_FRAGMENT_BIT());
-            VkPipelineShaderStageCreateInfo.module$set(pFragShaderStageInfo, MemoryAccess.getAddress(pFragShaderModule));
-            VkPipelineShaderStageCreateInfo.pName$set(pFragShaderStageInfo, CLinker.toCString("main", scope).address());
+            VkPipelineShaderStageCreateInfo.module$set(pFragShaderStageInfo, MemorySegment.ofAddress(ppFragShaderModule.get(C_POINTER, 0).address(), VkShaderModule.byteSize(), scope).address());
+            VkPipelineShaderStageCreateInfo.pName$set(pFragShaderStageInfo, scope.allocateUtf8String("main").address());
 
             var pVertexInputStateInfo = VkPipelineVertexInputStateCreateInfo.allocate(scope);
             VkPipelineVertexInputStateCreateInfo.sType$set(pVertexInputStateInfo, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO());
@@ -581,17 +592,19 @@ public class Vulkan {
             VkPipelineColorBlendStateCreateInfo.attachmentCount$set(pPipelineColorBlendStateInfo, 1);
             VkPipelineColorBlendStateCreateInfo.pAttachments$set(pPipelineColorBlendStateInfo, pPipelineColorBlendAttachmentState.address());
 
-            var pPipelineLayout = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
+            var ppPipelineLayout = scope.allocate(C_POINTER.byteSize());
             var pPipelineLayoutCreateInfo = VkPipelineLayoutCreateInfo.allocate(scope);
             VkPipelineLayoutCreateInfo.sType$set(pPipelineLayoutCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO());
 
-            result = VkResult(vulkan_h.vkCreatePipelineLayout(MemoryAccess.getAddress(pVkDevice),
-                    pPipelineLayoutCreateInfo.address(), MemoryAddress.NULL, pPipelineLayout.address()));
+            result = VkResult(vulkan_h.vkCreatePipelineLayout(vkDevice,
+                    pPipelineLayoutCreateInfo, MemoryAddress.NULL, ppPipelineLayout.address()));
             if (result != VK_SUCCESS) {
                 System.out.println("vkCreatePipelineLayout failed: " + result);
                 System.exit(-1);
-            }
+            } else {
+                System.out.println("vkCreatePipelineLayout succeeded");
 
+            }
             var pAttachmentDescription = VkAttachmentDescription.allocate(scope);
             VkAttachmentDescription.format$set(pAttachmentDescription, swapChainImageFormat);
             VkAttachmentDescription.samples$set(pAttachmentDescription, vulkan_h.VK_SAMPLE_COUNT_1_BIT());
@@ -619,7 +632,7 @@ public class Vulkan {
             VkSubpassDependency.dstStageMask$set(pSubpassDependency, vulkan_h.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT());
             VkSubpassDependency.dstAccessMask$set(pSubpassDependency, vulkan_h.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT());
 
-            var pRenderPass = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
+            var ppRenderPass = scope.allocate(C_POINTER.byteSize());
             var pRenderPassCreateInfo = VkRenderPassCreateInfo.allocate(scope);
             VkRenderPassCreateInfo.sType$set(pRenderPassCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO());
             VkRenderPassCreateInfo.attachmentCount$set(pRenderPassCreateInfo, 1);
@@ -629,24 +642,28 @@ public class Vulkan {
             VkRenderPassCreateInfo.dependencyCount$set(pRenderPassCreateInfo, 1);
             VkRenderPassCreateInfo.pDependencies$set(pRenderPassCreateInfo, pSubpassDependency.address());
 
-            result = VkResult(vulkan_h.vkCreateRenderPass(MemoryAccess.getAddress(pVkDevice),
-                    pRenderPassCreateInfo.address(), MemoryAddress.NULL, pRenderPass.address()));
+
+            result = VkResult(vulkan_h.vkCreateRenderPass(vkDevice,
+                    pRenderPassCreateInfo, MemoryAddress.NULL, ppRenderPass.address()));
             if (result != VK_SUCCESS) {
                 System.out.println("vkCreateRenderPass failed: " + result);
                 System.exit(-1);
+            } else {
+                System.out.println("vkCreateRenderPass succeeded");
+
             }
 
             var pPipelineCreateInfo = VkGraphicsPipelineCreateInfo.allocate(scope);
             VkGraphicsPipelineCreateInfo.sType$set(pPipelineCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO());
-            MemorySegment ppStages = SegmentAllocator.ofScope(scope).allocateArray(VkPipelineShaderStageCreateInfo.$LAYOUT(), 2);
+            MemorySegment ppStages = scope.allocateArray(VkPipelineShaderStageCreateInfo.$LAYOUT(), 2);
             VkPipelineShaderStageCreateInfo.sType$set(ppStages, 0, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO());
             VkPipelineShaderStageCreateInfo.stage$set(ppStages, 0, vulkan_h.VK_SHADER_STAGE_VERTEX_BIT());
-            VkPipelineShaderStageCreateInfo.module$set(ppStages, 0, MemoryAccess.getAddress(pVertShaderModule));
-            VkPipelineShaderStageCreateInfo.pName$set(ppStages, 0, CLinker.toCString("main", scope).address());
+            VkPipelineShaderStageCreateInfo.module$set(ppStages, 0, MemorySegment.ofAddress(ppVertShaderModule.get(C_POINTER, 0).address(), VkShaderModule.byteSize(), scope).address());
+            VkPipelineShaderStageCreateInfo.pName$set(ppStages, 0, scope.allocateUtf8String("main").address());
             VkPipelineShaderStageCreateInfo.sType$set(ppStages, 1, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO());
             VkPipelineShaderStageCreateInfo.stage$set(ppStages, 1, vulkan_h.VK_SHADER_STAGE_FRAGMENT_BIT());
-            VkPipelineShaderStageCreateInfo.module$set(ppStages, 1, MemoryAccess.getAddress(pFragShaderModule));
-            VkPipelineShaderStageCreateInfo.pName$set(ppStages, 1, CLinker.toCString("main", scope).address());
+            VkPipelineShaderStageCreateInfo.module$set(ppStages, 1, MemorySegment.ofAddress(ppFragShaderModule.get(C_POINTER, 0).address(), VkShaderModule.byteSize(), scope).address());
+            VkPipelineShaderStageCreateInfo.pName$set(ppStages, 1, scope.allocateUtf8String("main").address());
             VkGraphicsPipelineCreateInfo.stageCount$set(pPipelineCreateInfo, 2);
             VkGraphicsPipelineCreateInfo.pStages$set(pPipelineCreateInfo, ppStages.address());
             // These are probably wrong, because vulkan is looking for a struct pointer and we are sending the struct...
@@ -659,121 +676,142 @@ public class Vulkan {
             VkGraphicsPipelineCreateInfo.pDepthStencilState$set(pPipelineCreateInfo, MemoryAddress.NULL);
             VkGraphicsPipelineCreateInfo.pColorBlendState$set(pPipelineCreateInfo, pPipelineColorBlendStateInfo.address());
             VkGraphicsPipelineCreateInfo.pDynamicState$set(pPipelineCreateInfo, MemoryAddress.NULL);
-            VkGraphicsPipelineCreateInfo.layout$set(pPipelineCreateInfo, MemoryAccess.getAddress(pPipelineLayout));
-            VkGraphicsPipelineCreateInfo.renderPass$set(pPipelineCreateInfo, MemoryAccess.getAddress(pRenderPass));
+            VkGraphicsPipelineCreateInfo.layout$set(pPipelineCreateInfo, MemorySegment.ofAddress(ppPipelineLayout.get(C_POINTER, 0).address(), VkPipelineLayout.byteSize(), scope).address());
+            VkGraphicsPipelineCreateInfo.renderPass$set(pPipelineCreateInfo, MemorySegment.ofAddress(ppRenderPass.get(C_POINTER, 0).address(), VkRenderPass.byteSize(), scope).address());
             VkGraphicsPipelineCreateInfo.subpass$set(pPipelineCreateInfo, 0);
             VkGraphicsPipelineCreateInfo.basePipelineHandle$set(pPipelineCreateInfo, vulkan_h.VK_NULL_HANDLE());
             VkGraphicsPipelineCreateInfo.basePipelineIndex$set(pPipelineCreateInfo, -1);
 
-            var pVkPipeline = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
-            result = VkResult(vulkan_h.vkCreateGraphicsPipelines(MemoryAccess.getAddress(pVkDevice),
-                    vulkan_h.VK_NULL_HANDLE(), 1, pPipelineCreateInfo.address(), MemoryAddress.NULL, pVkPipeline.address()));
+            var ppVkPipeline = scope.allocate(C_POINTER.byteSize());
+            result = VkResult(vulkan_h.vkCreateGraphicsPipelines(vkDevice,
+                    vulkan_h.VK_NULL_HANDLE(), 1, pPipelineCreateInfo, MemoryAddress.NULL, ppVkPipeline.address()));
             if (result != VK_SUCCESS) {
                 System.out.println("vkCreateGraphicsPipelines failed: " + result);
                 System.exit(-1);
+            } else {
+                System.out.println("vkCreateGraphicsPipelines succeeded");
+
             }
 
             List<MemorySegment> swapChainFramebuffers = new ArrayList<>();
             for (MemorySegment imageView : imageViews) {
-                var pVkFramebuffer = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
+                var ppVkFramebuffer = scope.allocate(C_POINTER.byteSize());
                 var pFramebufferCreateInfo = VkFramebufferCreateInfo.allocate(scope);
                 VkFramebufferCreateInfo.sType$set(pFramebufferCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO());
-                VkFramebufferCreateInfo.renderPass$set(pFramebufferCreateInfo, MemoryAccess.getAddress(pRenderPass));
+                VkFramebufferCreateInfo.renderPass$set(pFramebufferCreateInfo, MemorySegment.ofAddress(ppRenderPass.get(C_POINTER, 0).address(), VkRenderPass.byteSize(), scope).address());
                 VkFramebufferCreateInfo.attachmentCount$set(pFramebufferCreateInfo, 1);
                 VkFramebufferCreateInfo.pAttachments$set(pFramebufferCreateInfo, imageView.address());
                 VkFramebufferCreateInfo.width$set(pFramebufferCreateInfo, width);
                 VkFramebufferCreateInfo.height$set(pFramebufferCreateInfo, height);
                 VkFramebufferCreateInfo.layers$set(pFramebufferCreateInfo, 1);
 
-                result = VkResult(vulkan_h.vkCreateFramebuffer(MemoryAccess.getAddress(pVkDevice),
-                        pFramebufferCreateInfo.address(), MemoryAddress.NULL, pVkFramebuffer.address()));
+                result = VkResult(vulkan_h.vkCreateFramebuffer(vkDevice,
+                        pFramebufferCreateInfo.address(), MemoryAddress.NULL, ppVkFramebuffer.address()));
                 if (result != VK_SUCCESS) {
                     System.out.println("vkCreateFramebuffer failed: " + result);
                     System.exit(-1);
+                } else {
+                    System.out.println("vkCreateFramebuffer succeeded");
                 }
-                swapChainFramebuffers.add(pVkFramebuffer);
+                swapChainFramebuffers.add(ppVkFramebuffer);
             }
 
-            var pVkCommandPool = SegmentAllocator.ofScope(scope).allocate(C_POINTER.byteSize());
+            var ppVkCommandPool = scope.allocate(C_POINTER.byteSize());
             var pCommandPoolCreateInfo = VkCommandPoolCreateInfo.allocate(scope);
             VkCommandPoolCreateInfo.sType$set(pCommandPoolCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO());
             VkCommandPoolCreateInfo.queueFamilyIndex$set(pCommandPoolCreateInfo, graphicsQueueFamily.queueFamilyIndex);
 
-            result = VkResult(vulkan_h.vkCreateCommandPool(MemoryAccess.getAddress(pVkDevice),
-                    pCommandPoolCreateInfo.address(), MemoryAddress.NULL, pVkCommandPool.address()));
+            result = VkResult(vulkan_h.vkCreateCommandPool(vkDevice,
+                    pCommandPoolCreateInfo, MemoryAddress.NULL, ppVkCommandPool.address()));
             if (result != VK_SUCCESS) {
                 System.out.println("vkCreateCommandPool failed: " + result);
                 System.exit(-1);
+            } else {
+                System.out.println("vkCreateCommandPool succeeded");
             }
 
-            MemorySegment ppCommandBuffers = SegmentAllocator.ofScope(scope).allocate(
+            MemorySegment ppCommandBuffers = scope.allocate(
                     C_POINTER.byteSize() * swapChainFramebuffers.size());
             var pCommandBufferAllocateInfo = VkCommandBufferAllocateInfo.allocate(scope);
             VkCommandBufferAllocateInfo.sType$set(pCommandBufferAllocateInfo, vulkan_h.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO());
-            VkCommandBufferAllocateInfo.commandPool$set(pCommandBufferAllocateInfo, MemoryAccess.getAddress(pVkCommandPool));
+            VkCommandBufferAllocateInfo.commandPool$set(pCommandBufferAllocateInfo, MemorySegment.ofAddress(ppVkCommandPool.get(C_POINTER, 0).address(), VkCommandPool.byteSize(), scope).address());
             VkCommandBufferAllocateInfo.level$set(pCommandBufferAllocateInfo, vulkan_h.VK_COMMAND_BUFFER_LEVEL_PRIMARY());
             VkCommandBufferAllocateInfo.commandBufferCount$set(pCommandBufferAllocateInfo, swapChainFramebuffers.size());
 
-            result = VkResult(vulkan_h.vkAllocateCommandBuffers(MemoryAccess.getAddress(pVkDevice),
+            result = VkResult(vulkan_h.vkAllocateCommandBuffers(vkDevice,
                     pCommandBufferAllocateInfo.address(), ppCommandBuffers.address()));
             if (result != VK_SUCCESS) {
                 System.out.println("vkAllocateCommandBuffers failed: " + result);
                 System.exit(-1);
+            } else {
+                System.out.println("vkAllocateCommandBuffers succeeded");
             }
 
             for (int i = 0; i < swapChainFramebuffers.size(); i++) {
                 var pCommandBufferBeginInfo = VkCommandBufferBeginInfo.allocate(scope);
                 VkCommandBufferBeginInfo.sType$set(pCommandBufferBeginInfo, vulkan_h.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO());
 
-                result = VkResult(vulkan_h.vkBeginCommandBuffer(MemoryAccess.getAddressAtIndex(ppCommandBuffers, i),
-                        pCommandBufferBeginInfo.address()));
+                result = VkResult(vulkan_h.vkBeginCommandBuffer(ppCommandBuffers.get(C_POINTER, C_POINTER.byteSize() * i),
+                        pCommandBufferBeginInfo));
                 if (result != VK_SUCCESS) {
                     System.out.println("vkBeginCommandBuffer failed: " + result);
                     System.exit(-1);
+                } else {
+                    System.out.println("vkBeginCommandBuffer succeeded");
                 }
 
                 var pRenderPassBeginInfo = VkRenderPassBeginInfo.allocate(scope);
                 VkRenderPassBeginInfo.sType$set(pRenderPassBeginInfo, vulkan_h.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO());
-                VkRenderPassBeginInfo.renderPass$set(pRenderPassBeginInfo, MemoryAccess.getAddress(pRenderPass));
-                VkRenderPassBeginInfo.framebuffer$set(pRenderPassBeginInfo, MemoryAccess.getAddress(swapChainFramebuffers.get(i)));
+                VkRenderPassBeginInfo.renderPass$set(pRenderPassBeginInfo, MemorySegment.ofAddress(ppRenderPass.get(C_POINTER, 0).address(), VkRenderPass.byteSize(), scope).address());
+                VkRenderPassBeginInfo.framebuffer$set(pRenderPassBeginInfo, MemorySegment.ofAddress(swapChainFramebuffers.get(i).get(C_POINTER, 0).address(), VkFramebuffer.byteSize(), scope).address());
                 VkOffset2D.x$set(VkRect2D.offset$slice(VkRenderPassBeginInfo.renderArea$slice(pRenderPassBeginInfo)), 0);
                 VkOffset2D.y$set(VkRect2D.offset$slice(VkRenderPassBeginInfo.renderArea$slice(pRenderPassBeginInfo)), 0);
                 VkExtent2D.width$set(VkRect2D.extent$slice(VkRenderPassBeginInfo.renderArea$slice(pRenderPassBeginInfo)), width);
                 VkExtent2D.height$set(VkRect2D.extent$slice(VkRenderPassBeginInfo.renderArea$slice(pRenderPassBeginInfo)), height);
                 VkRenderPassBeginInfo.clearValueCount$set(pRenderPassBeginInfo, 1);
                 var pClearValue = VkClearValue.allocate(scope);
-                MemoryAccess.setFloatAtIndex(VkClearColorValue.float32$slice(VkClearValue.color$slice(pClearValue)), 0, 0.0f);
-                MemoryAccess.setFloatAtIndex(VkClearColorValue.float32$slice(VkClearValue.color$slice(pClearValue)), 1, 0.0f);
-                MemoryAccess.setFloatAtIndex(VkClearColorValue.float32$slice(VkClearValue.color$slice(pClearValue)), 2, 0.0f);
-                MemoryAccess.setFloatAtIndex(VkClearColorValue.float32$slice(VkClearValue.color$slice(pClearValue)), 3, 1.0f);
 
-                vulkan_h.vkCmdBeginRenderPass(MemoryAccess.getAddressAtIndex(ppCommandBuffers, i),
-                        pRenderPassBeginInfo.address(), vulkan_h.VK_SUBPASS_CONTENTS_INLINE());
-                vulkan_h.vkCmdBindPipeline(MemoryAccess.getAddressAtIndex(ppCommandBuffers, i),
-                        vulkan_h.VK_PIPELINE_BIND_POINT_GRAPHICS(), MemoryAccess.getAddress(pVkPipeline));
-                vulkan_h.vkCmdDraw(MemoryAccess.getAddressAtIndex(ppCommandBuffers, i), 3, 1, 0, 0);
-                vulkan_h.vkCmdEndRenderPass(MemoryAccess.getAddressAtIndex(ppCommandBuffers, i));
-                result = VkResult(vulkan_h.vkEndCommandBuffer(MemoryAccess.getAddressAtIndex(ppCommandBuffers, i)));
+
+                // MemoryAccess.setFloatAtIndex(VkClearColorValue.float32$slice(VkClearValue.color$slice(pClearValue)), 0, 0.0f);
+                // MemoryAccess.setFloatAtIndex(VkClearColorValue.float32$slice(VkClearValue.color$slice(pClearValue)), 1, 0.0f);
+                // MemoryAccess.setFloatAtIndex(VkClearColorValue.float32$slice(VkClearValue.color$slice(pClearValue)), 2, 0.0f);
+                // MemoryAccess.setFloatAtIndex(VkClearColorValue.float32$slice(VkClearValue.color$slice(pClearValue)), 3, 1.0f);
+
+                var vkCommandBuffer = MemorySegment.ofAddress(ppCommandBuffers.get(C_POINTER, C_POINTER.byteSize() * i).address(), VkCommandBuffer.byteSize(), scope).address();
+                /*
+                vulkan_h.vkCmdBeginRenderPass(vkCommandBuffer, pRenderPassBeginInfo, vulkan_h.VK_SUBPASS_CONTENTS_INLINE());
+
+                vulkan_h.vkCmdBindPipeline(vkCommandBuffer,
+                        vulkan_h.VK_PIPELINE_BIND_POINT_GRAPHICS(), MemorySegment.ofAddress(ppVkPipeline.get(C_POINTER, 0).address(), VkPipeline.byteSize(), scope).address());
+                vulkan_h.vkCmdDraw(vkCommandBuffer, 3, 1, 0, 0);
+                vulkan_h.vkCmdEndRenderPass(vkCommandBuffer);
+                result = VkResult(vulkan_h.vkEndCommandBuffer(vkCommandBuffer));
                 if (result != VK_SUCCESS) {
                     System.out.println("vkEndCommandBuffer failed: " + result);
                     System.exit(-1);
+                } else {
+                    System.out.println("vkEndCommandBuffer succeeded");
                 }
+
+                 */
             }
 
             var pSemaphoreCreateInfo = VkSemaphoreCreateInfo.allocate(scope);
             VkSemaphoreCreateInfo.sType$set(pSemaphoreCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO());
 
-            MemorySegment ppSemaphores = SegmentAllocator.ofScope(scope).allocateArray(C_POINTER, 2);
+            MemorySegment ppSemaphores = scope.allocateArray(C_POINTER, 2);
 
             for (int i = 0 ; i < 2 ; i++) {
-                result = VkResult(vulkan_h.vkCreateSemaphore(MemoryAccess.getAddress(pVkDevice),
-                        pSemaphoreCreateInfo.address(), MemoryAddress.NULL, ppSemaphores.asSlice(C_POINTER.byteSize() * i)));
+                result = VkResult(vulkan_h.vkCreateSemaphore(vkDevice,
+                        pSemaphoreCreateInfo, MemoryAddress.NULL, ppSemaphores.asSlice(C_POINTER.byteSize() * i)));
                 if (result != VK_SUCCESS) {
                     System.out.println("vkCreateSemaphore failed: " + result);
                     System.exit(-1);
+                } else {
+                    System.out.println("vkCreateSemaphore succeeded");
                 }
             }
-
+ /*
             MemorySegment pMsg = MSG.allocate(scope);
             int getMessageRet;
             while ((getMessageRet = Windows_h.GetMessageW(pMsg.address(), MemoryAddress.NULL, 0, 0)) != 0) {
@@ -827,7 +865,7 @@ public class Vulkan {
         }
     }
 
-    private static MemorySegment getShaderModule(MemoryAddress vkDevice, byte[] shaderSpv, MemorySession scope) {
+    private static MemorySegment getShaderModule(MemorySegment vkDevice, byte[] shaderSpv, MemorySession scope) {
         var pShaderModuleCreateInfo = VkShaderModuleCreateInfo.allocate(scope);
         VkShaderModuleCreateInfo.sType$set(pShaderModuleCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO());
         VkShaderModuleCreateInfo.codeSize$set(pShaderModuleCreateInfo, shaderSpv.length);
@@ -840,15 +878,17 @@ public class Vulkan {
         VkShaderModuleCreateInfo.pCode$set(pShaderModuleCreateInfo, scope.allocateArray(C_CHAR,
                 shaderSpv).address());
 
-        var pShaderModule = scope.allocate(C_POINTER.byteSize());
+        var ppShaderModule = scope.allocate(C_POINTER.byteSize());
         var result = VkResult(vulkan_h.vkCreateShaderModule(vkDevice,
-                pShaderModuleCreateInfo.address(), MemoryAddress.NULL, pShaderModule.address()));
+                pShaderModuleCreateInfo, MemoryAddress.NULL, ppShaderModule.address()));
         if (result != VK_SUCCESS) {
             System.out.println("vkCreateShaderModule failed: " + result);
             System.exit(-1);
+        } else {
+            System.out.println("vkCreateShaderModule succeeded");
         }
 
-        return pShaderModule;
+        return ppShaderModule;
     }
 
     public static void copy(MemorySegment addr, byte[] bytes) {
@@ -933,13 +973,7 @@ public class Vulkan {
             Objects.requireNonNull(physicalDeviceMemoryProperties);
             Objects.requireNonNull(physicalDeviceQueueFamilyProperties);
             Objects.requireNonNull(ppSurface);
-            System.out.println("physicalDevice: " + physicalDevice);
-            System.out.println("physicalDeviceProperties: " + physicalDeviceProperties);
-            System.out.println("physicalDeviceFeatures: " + physicalDeviceFeatures);
-            System.out.println("physicalDeviceMemoryProperties: " + physicalDeviceMemoryProperties);
             System.out.println("numQueueFamilies: " + numQueueFamilies);
-            System.out.println("physicalDeviceQueueFamilyProperties: " + physicalDeviceQueueFamilyProperties);
-            System.out.println("ppSurface: " + ppSurface);
             this.scope = scope;
             this.physicalDevice = physicalDevice;
             this.physicalDeviceProperties = physicalDeviceProperties;
@@ -988,9 +1022,6 @@ public class Vulkan {
                         (queueFlags & vulkan_h.VK_QUEUE_SPARSE_BINDING_BIT()) != 0,
                         true, supportsWin32Presentation));
             }
-
-
-
             queueFamilies.forEach(System.out::println);
         }
 
@@ -1001,12 +1032,9 @@ public class Vulkan {
             System.out.println("deviceID: " + VkPhysicalDeviceProperties.deviceID$get(physicalDeviceProperties));
             System.out.println("deviceType: " + VkPhysicalDeviceType(VkPhysicalDeviceProperties.deviceType$get(physicalDeviceProperties)));
             System.out.println("deviceName: " + VkPhysicalDeviceProperties.deviceName$slice(physicalDeviceProperties).getUtf8String(0));
-
             System.out.println("robustBufferAccess: " + VkPhysicalDeviceFeatures.robustBufferAccess$get(physicalDeviceFeatures));
-
             System.out.println("memoryTypeCount: " + VkPhysicalDeviceMemoryProperties.memoryTypeCount$get(physicalDeviceMemoryProperties));
             System.out.println("memoryHeapCount: " + VkPhysicalDeviceMemoryProperties.memoryHeapCount$get(physicalDeviceMemoryProperties));
-
             System.out.println("numQueueFamilies: " + numQueueFamilies);
         }
 
