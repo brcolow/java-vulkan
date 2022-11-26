@@ -74,6 +74,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
+import static com.brcolow.game.VKResult.VK_ERROR_LAYER_NOT_PRESENT;
 import static com.brcolow.game.VKResult.VK_SUCCESS;
 import static com.brcolow.game.VKResult.VkResult;
 import static com.brcolow.game.VkPhysicalDeviceType.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
@@ -97,11 +98,12 @@ import static com.brcolow.vulkanapi.vulkan_h.VkPipeline;
 import static com.brcolow.vulkanapi.vulkan_h.VkCommandBuffer;
 import static com.brcolow.vulkanapi.vulkan_h.VkQueue;
 import static com.brcolow.vulkanapi.vulkan_h.VkSemaphore;
+import static com.brcolow.vulkanapi.vulkan_h.VkInstance;
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
 // https://github.com/ShabbyX/vktut/blob/master/tut1/tut1.c
 public class Vulkan {
-    private static final boolean DEBUG = false;
+    private static final boolean DEBUG = true;
     private static MemoryAddress hwndMain;
 
     public static void main(String[] args) {
@@ -158,7 +160,11 @@ public class Vulkan {
                     MemoryAddress.NULL,
                     ppVkInstance.address()));
             if (result != VK_SUCCESS) {
-                System.out.println("vkCreateInstance failed: " + result);
+                if (DEBUG && result == VK_ERROR_LAYER_NOT_PRESENT) {
+                    System.out.println("Could not enable debug validation layer - make sure Vulkan SDK is installed.");
+                } else {
+                    System.out.println("vkCreateInstance failed: " + result);
+                }
                 System.exit(-1);
             } else {
                 System.out.println("vkCreateInstance succeeded");
@@ -197,10 +203,15 @@ public class Vulkan {
                 VkDebugUtilsMessengerCreateInfoEXT.pfnUserCallback$set(pDebugUtilsMessengerCreateInfo, debugCallbackFunc);
                 VkDebugUtilsMessengerCreateInfoEXT.pUserData$set(pDebugUtilsMessengerCreateInfo, MemoryAddress.NULL);
 
+
                 PFN_vkCreateDebugUtilsMessengerEXT vkCreateDebugUtilsMessengerEXTFunc = PFN_vkCreateDebugUtilsMessengerEXT.ofAddress(
-                        vulkan_h.vkGetInstanceProcAddr(ppVkInstance.address(), scope.allocateUtf8String("vkCreateDebugUtilsMessengerEXT")), scope);
-                var pDebugMessenger = scope.allocate(C_POINTER.byteSize());
-                result = VkResult(vkCreateDebugUtilsMessengerEXTFunc.apply(ppVkInstance.address(),
+                        vulkan_h.vkGetInstanceProcAddr(
+                                MemorySegment.ofAddress(ppVkInstance.get(C_POINTER, 0), VkInstance.byteSize(), scope),
+                                scope.allocateUtf8String("vkCreateDebugUtilsMessengerEXT")), scope);
+
+                var pDebugMessenger = VkDebugUtilsMessengerCreateInfoEXT.allocate(scope);
+
+                result = VkResult(vkCreateDebugUtilsMessengerEXTFunc.apply(ppVkInstance.get(C_POINTER, 0),
                         pDebugUtilsMessengerCreateInfo.address(), MemoryAddress.NULL, pDebugMessenger.address()));
                 if (result != VK_SUCCESS) {
                     System.out.println("vkCreateDebugUtilsMessengerEXT failed: " + result);
@@ -230,7 +241,6 @@ public class Vulkan {
             var hinstance = Windows_h.GetModuleHandleW(MemoryAddress.NULL);
             VkWin32SurfaceCreateInfoKHR.hinstance$set(pWin32SurfaceCreateInfo, hinstance);
             VkWin32SurfaceCreateInfoKHR.hwnd$set(pWin32SurfaceCreateInfo, hwndMain);
-
 
             var ppSurface = scope.allocate(C_POINTER.byteSize());
             result = VkResult(vulkan_h.vkCreateWin32SurfaceKHR(ppVkInstance.get(C_POINTER, 0),
@@ -446,7 +456,6 @@ public class Vulkan {
             }
 
             System.out.println("numSwapChainImages: " + numSwapChainImages);
-
 
             MemorySegment ppSwapChainImages = scope.allocate(
                     C_POINTER.byteSize() * numSwapChainImages);
@@ -691,7 +700,6 @@ public class Vulkan {
                 System.exit(-1);
             } else {
                 System.out.println("vkCreateGraphicsPipelines succeeded");
-
             }
 
             List<MemorySegment> ppSwapChainFramebuffers = new ArrayList<>();
