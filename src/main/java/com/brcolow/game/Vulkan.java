@@ -13,6 +13,7 @@ import com.brcolow.vulkanapi.VkDebugUtilsMessengerCreateInfoEXT;
 import com.brcolow.vulkanapi.VkDeviceCreateInfo;
 import com.brcolow.vulkanapi.VkDeviceQueueCreateInfo;
 import com.brcolow.vulkanapi.VkExtent2D;
+import com.brcolow.vulkanapi.VkFenceCreateInfo;
 import com.brcolow.vulkanapi.VkFramebufferCreateInfo;
 import com.brcolow.vulkanapi.VkGraphicsPipelineCreateInfo;
 import com.brcolow.vulkanapi.VkImageSubresourceRange;
@@ -101,6 +102,7 @@ import static com.brcolow.vulkanapi.vulkan_h.VkCommandBuffer;
 import static com.brcolow.vulkanapi.vulkan_h.VkQueue;
 import static com.brcolow.vulkanapi.vulkan_h.VkSemaphore;
 import static com.brcolow.vulkanapi.vulkan_h.VkInstance;
+import static com.brcolow.vulkanapi.vulkan_h.VkFence;
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
 // https://github.com/ShabbyX/vktut/blob/master/tut1/tut1.c
@@ -819,58 +821,65 @@ public class Vulkan {
 
             MemorySegment pMsg = MSG.allocate(scope);
             int getMessageRet;
-            while ((getMessageRet = Windows_h.GetMessageW(pMsg.address(), MemoryAddress.NULL, 0, 0)) != 0) {
-                if (getMessageRet == -1) {
-                    // handle the error and possibly exit
-                } else {
-                    var pImageIndex = scope.allocate(C_INT, -1);
-                    System.out.println("imageIndex: " + pImageIndex.get(C_INT, 0));
-                    result = VkResult(vulkan_h.vkAcquireNextImageKHR(vkDevice,
-                            MemorySegment.ofAddress(pSwapChain, VkSwapchainKHR.byteSize(), scope), Long.MAX_VALUE,
-                            MemorySegment.ofAddress(ppSemaphores.asSlice(C_POINTER.byteSize()).get(C_POINTER, 0).address(), VkSemaphore.byteSize(), scope).address(),
-                            vulkan_h.VK_NULL_HANDLE(), pImageIndex.address()));
-                    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-                        // If the window has been resized, the result will be an out of date error,
-                        // meaning that the swap chain must be resized.
-                    } else if (result != VK_SUCCESS) {
-                        System.out.println("Failed to get next frame via vkAcquireNextImageKHR: " + result);
-                        System.exit(-1);
-                    }
-
-                    var pSubmitInfo = VkSubmitInfo.allocate(scope);
-                    VkSubmitInfo.sType$set(pSubmitInfo, vulkan_h.VK_STRUCTURE_TYPE_SUBMIT_INFO());
-                    VkSubmitInfo.waitSemaphoreCount$set(pSubmitInfo, 1);
-                    VkSubmitInfo.pWaitSemaphores$set(pSubmitInfo, 0, ppSemaphores.asSlice(0).address());
-                    VkSubmitInfo.pWaitDstStageMask$set(pSubmitInfo, scope.allocateArray(C_INT,
-                            new int[]{vulkan_h.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT()}).address());
-                    VkSubmitInfo.commandBufferCount$set(pSubmitInfo, 1);
-                    VkSubmitInfo.pCommandBuffers$set(pSubmitInfo, ppCommandBuffers.asSlice(C_POINTER.byteSize() *
-                            pImageIndex.get(C_INT, 0)).address());
-                    VkSubmitInfo.signalSemaphoreCount$set(pSubmitInfo, 1);
-                    VkSubmitInfo.pSignalSemaphores$set(pSubmitInfo, 0, ppSemaphores.asSlice(C_POINTER.byteSize()).address());
-
-                    result = VkResult(vulkan_h.vkQueueSubmit(MemorySegment.ofAddress(ppVkGraphicsQueue.get(C_POINTER, 0), VkQueue.byteSize(), scope).address(), 1,
-                            pSubmitInfo.address(), vulkan_h.VK_NULL_HANDLE()));
-                    if (result != VK_SUCCESS) {
-                        System.out.println("vkQueueSubmit failed: " + result);
-                        System.exit(-1);
-                    } else {
-                        System.out.println("vkQueueSubmit succeeded!");
-                    }
-
-                    var pPresentInfoKHR = VkPresentInfoKHR.allocate(scope);
-                    VkPresentInfoKHR.sType$set(pPresentInfoKHR, vulkan_h.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR());
-                    VkPresentInfoKHR.waitSemaphoreCount$set(pPresentInfoKHR, 1);
-                    VkPresentInfoKHR.pWaitSemaphores$set(pPresentInfoKHR, ppSemaphores.asSlice(0).address());
-                    VkPresentInfoKHR.swapchainCount$set(pPresentInfoKHR, 1);
-                    VkPresentInfoKHR.pSwapchains$set(pPresentInfoKHR, 0, ppSwapChain.asSlice(0).address());
-                    VkPresentInfoKHR.pImageIndices$set(pPresentInfoKHR, 0, scope.allocateArray(
-                            C_INT, new int[] {pImageIndex.get(C_INT, 0)}).address());
-                    vulkan_h.vkQueuePresentKHR(MemorySegment.ofAddress(ppVkGraphicsQueue.get(C_POINTER, 0), VkQueue.byteSize(), scope).address(), pPresentInfoKHR.address());
-
-                    Windows_h.TranslateMessage(pMsg.address());
-                    Windows_h.DispatchMessageW(pMsg.address());
+            while ((getMessageRet = Windows_h.PeekMessageW(pMsg.address(), MemoryAddress.NULL, 0, 0, Windows_h.PM_REMOVE())) != -1) {
+                var pImageIndex = scope.allocate(C_INT, -1);
+                result = VkResult(vulkan_h.vkAcquireNextImageKHR(vkDevice,
+                        MemorySegment.ofAddress(pSwapChain, VkSwapchainKHR.byteSize(), scope), Long.MAX_VALUE,
+                        MemorySegment.ofAddress(ppSemaphores.asSlice(C_POINTER.byteSize()).get(C_POINTER, 0).address(), VkSemaphore.byteSize(), scope).address(),
+                        vulkan_h.VK_NULL_HANDLE(), pImageIndex.address()));
+                System.out.println("imageIndex: " + pImageIndex.get(C_INT, 0));
+                if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+                    // If the window has been resized, the result will be an out of date error,
+                    // meaning that the swap chain must be resized.
+                } else if (result != VK_SUCCESS) {
+                    System.out.println("Failed to get next frame via vkAcquireNextImageKHR: " + result);
+                    System.exit(-1);
                 }
+
+                var pSubmitInfo = VkSubmitInfo.allocate(scope);
+                VkSubmitInfo.sType$set(pSubmitInfo, vulkan_h.VK_STRUCTURE_TYPE_SUBMIT_INFO());
+                VkSubmitInfo.waitSemaphoreCount$set(pSubmitInfo, 1);
+                VkSubmitInfo.pWaitSemaphores$set(pSubmitInfo, 0, ppSemaphores.asSlice(0).address());
+                VkSubmitInfo.pWaitDstStageMask$set(pSubmitInfo, scope.allocateArray(C_INT,
+                        new int[]{vulkan_h.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT()}).address());
+                VkSubmitInfo.commandBufferCount$set(pSubmitInfo, 1);
+                VkSubmitInfo.pCommandBuffers$set(pSubmitInfo, ppCommandBuffers.address());
+                VkSubmitInfo.signalSemaphoreCount$set(pSubmitInfo, 1);
+                VkSubmitInfo.pSignalSemaphores$set(pSubmitInfo, 0, ppSemaphores.asSlice(C_POINTER.byteSize()).address());
+
+                var pFenceCreateInfo = VkFenceCreateInfo.allocate(scope);
+                VkFenceCreateInfo.sType$set(pFenceCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO());
+                VkFenceCreateInfo.flags$set(pFenceCreateInfo, 0);
+                var ppFence = scope.allocate(C_POINTER.byteSize());
+                result = VkResult(vulkan_h.vkCreateFence(vkDevice, pFenceCreateInfo.address(), MemoryAddress.NULL, ppFence.address()));
+                if (result != VK_SUCCESS) {
+                    System.out.println("vkCreateFence failed: " + result);
+                    System.exit(-1);
+                } else {
+                    System.out.println("vkCreateFence succeeded!");
+                }
+                var fence = MemorySegment.ofAddress(ppFence.get(C_POINTER, 0), VkFence.byteSize(), scope);
+                result = VkResult(vulkan_h.vkQueueSubmit(MemorySegment.ofAddress(ppVkGraphicsQueue.get(C_POINTER, 0), VkQueue.byteSize(), scope), 1,
+                        pSubmitInfo.address(), fence));
+                if (result != VK_SUCCESS) {
+                    System.out.println("vkQueueSubmit failed: " + result);
+                    System.exit(-1);
+                } else {
+                    System.out.println("vkQueueSubmit succeeded!");
+                }
+
+                var pPresentInfoKHR = VkPresentInfoKHR.allocate(scope);
+                VkPresentInfoKHR.sType$set(pPresentInfoKHR, vulkan_h.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR());
+                VkPresentInfoKHR.waitSemaphoreCount$set(pPresentInfoKHR, 1);
+                VkPresentInfoKHR.pWaitSemaphores$set(pPresentInfoKHR, ppSemaphores.asSlice(0).address());
+                VkPresentInfoKHR.swapchainCount$set(pPresentInfoKHR, 1);
+                VkPresentInfoKHR.pSwapchains$set(pPresentInfoKHR, 0, ppSwapChain.asSlice(0).address());
+                VkPresentInfoKHR.pImageIndices$set(pPresentInfoKHR, 0, scope.allocateArray(
+                        C_INT, new int[] {pImageIndex.get(C_INT, 0)}).address());
+                vulkan_h.vkQueuePresentKHR(MemorySegment.ofAddress(ppVkGraphicsQueue.get(C_POINTER, 0), VkQueue.byteSize(), scope).address(), pPresentInfoKHR.address());
+
+                Windows_h.TranslateMessage(pMsg.address());
+                Windows_h.DispatchMessageW(pMsg.address());
             }
         }
     }
