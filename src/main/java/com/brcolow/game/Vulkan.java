@@ -463,7 +463,7 @@ public class Vulkan {
                     ppSwapChainImages.address());
 
             var ppImageView = scope.allocate(C_POINTER.byteSize());
-            List<MemorySegment> imageViews = new ArrayList<>();
+            List<MemoryAddress> imageViews = new ArrayList<>();
             for (int i = 0; i < numSwapChainImages; i++) {
                 var pImageViewCreateInfo = VkImageViewCreateInfo.allocate(scope);
                 VkImageViewCreateInfo.sType$set(pImageViewCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO());
@@ -489,10 +489,10 @@ public class Vulkan {
                     System.out.println("vkCreateImageView succeeded");
                 }
 
-                imageViews.add(ppImageView);
+                imageViews.add(ppImageView.address());
             }
 
-            System.out.println("imageViews: " + imageViews);
+            System.out.println("imageView size: " + imageViews.size());
 
             byte[] vertShaderBytes = null;
             byte[] fragShaderBytes = null;
@@ -698,13 +698,13 @@ public class Vulkan {
             }
 
             List<MemorySegment> ppSwapChainFramebuffers = new ArrayList<>();
-            for (MemorySegment imageView : imageViews) {
+            for (MemoryAddress imageView : imageViews) {
                 var ppVkFramebuffer = scope.allocate(C_POINTER.byteSize());
                 var pFramebufferCreateInfo = VkFramebufferCreateInfo.allocate(scope);
                 VkFramebufferCreateInfo.sType$set(pFramebufferCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO());
                 VkFramebufferCreateInfo.renderPass$set(pFramebufferCreateInfo, MemorySegment.ofAddress(ppRenderPass.get(C_POINTER, 0), VkRenderPass.byteSize(), scope).address());
                 VkFramebufferCreateInfo.attachmentCount$set(pFramebufferCreateInfo, 1);
-                VkFramebufferCreateInfo.pAttachments$set(pFramebufferCreateInfo, imageView.address());
+                VkFramebufferCreateInfo.pAttachments$set(pFramebufferCreateInfo, imageView);
                 VkFramebufferCreateInfo.width$set(pFramebufferCreateInfo, width);
                 VkFramebufferCreateInfo.height$set(pFramebufferCreateInfo, height);
                 VkFramebufferCreateInfo.layers$set(pFramebufferCreateInfo, 1);
@@ -719,6 +719,8 @@ public class Vulkan {
                 }
                 ppSwapChainFramebuffers.add(ppVkFramebuffer);
             }
+
+            System.out.println("Created " + ppSwapChainFramebuffers.size() + " frame buffers.");
 
             var ppVkCommandPool = scope.allocate(C_POINTER.byteSize());
             var pCommandPoolCreateInfo = VkCommandPoolCreateInfo.allocate(scope);
@@ -781,11 +783,11 @@ public class Vulkan {
                 pClearValue.setAtIndex(C_FLOAT, 3, 1.0f);
                 VkRenderPassBeginInfo.pClearValues$set(pRenderPassBeginInfo, pClearValue.address());
 
-                var vkCommandBuffer = MemorySegment.ofAddress(ppCommandBuffers.get(C_POINTER, C_POINTER.byteSize() * i), VkCommandBuffer.byteSize(), scope).address();
+                var vkCommandBuffer = MemorySegment.ofAddress(ppCommandBuffers.get(C_POINTER, C_POINTER.byteSize() * i), VkCommandBuffer.byteSize(), scope);
 
                 vulkan_h.vkCmdBeginRenderPass(vkCommandBuffer, pRenderPassBeginInfo, vulkan_h.VK_SUBPASS_CONTENTS_INLINE());
                 vulkan_h.vkCmdBindPipeline(vkCommandBuffer,
-                        vulkan_h.VK_PIPELINE_BIND_POINT_GRAPHICS(), MemorySegment.ofAddress(ppVkPipeline.get(C_POINTER, 0), VkPipeline.byteSize(), scope).address());
+                        vulkan_h.VK_PIPELINE_BIND_POINT_GRAPHICS(), MemorySegment.ofAddress(ppVkPipeline.get(C_POINTER, 0), VkPipeline.byteSize(), scope));
                 vulkan_h.vkCmdDraw(vkCommandBuffer, 3, 1, 0, 0);
                 vulkan_h.vkCmdEndRenderPass(vkCommandBuffer);
 
@@ -810,7 +812,7 @@ public class Vulkan {
                     System.out.println("vkCreateSemaphore failed: " + result);
                     System.exit(-1);
                 } else {
-                    System.out.println("vkCreateSemaphore succeeded");
+                    System.out.println("vkCreateSemaphore succeeded (semaphore #" + (i + 1) + " created).");
                 }
             }
 
@@ -820,7 +822,7 @@ public class Vulkan {
                 var pImageIndex = scope.allocate(C_INT, -1);
                 result = VkResult(vulkan_h.vkAcquireNextImageKHR(vkDevice,
                         MemorySegment.ofAddress(pSwapChain, VkSwapchainKHR.byteSize(), scope), Long.MAX_VALUE,
-                        MemorySegment.ofAddress(ppSemaphores.asSlice(C_POINTER.byteSize()).get(C_POINTER, 0), VkSemaphore.byteSize(), scope).address(),
+                        MemorySegment.ofAddress(ppSemaphores.asSlice(C_POINTER.byteSize()).get(C_POINTER, 0), VkSemaphore.byteSize(), scope),
                         vulkan_h.VK_NULL_HANDLE(), pImageIndex.address()));
                 System.out.println("imageIndex: " + pImageIndex.get(C_INT, 0));
                 if (result == VK_ERROR_OUT_OF_DATE_KHR) {
@@ -834,7 +836,7 @@ public class Vulkan {
                 var pSubmitInfo = VkSubmitInfo.allocate(scope);
                 VkSubmitInfo.sType$set(pSubmitInfo, vulkan_h.VK_STRUCTURE_TYPE_SUBMIT_INFO());
                 VkSubmitInfo.waitSemaphoreCount$set(pSubmitInfo, 1);
-                VkSubmitInfo.pWaitSemaphores$set(pSubmitInfo, 0, ppSemaphores.asSlice(0).address());
+                VkSubmitInfo.pWaitSemaphores$set(pSubmitInfo, 0, ppSemaphores.address());
                 VkSubmitInfo.pWaitDstStageMask$set(pSubmitInfo, scope.allocateArray(C_INT,
                         new int[]{vulkan_h.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT()}).address());
                 VkSubmitInfo.commandBufferCount$set(pSubmitInfo, 1);
@@ -866,12 +868,11 @@ public class Vulkan {
                 var pPresentInfoKHR = VkPresentInfoKHR.allocate(scope);
                 VkPresentInfoKHR.sType$set(pPresentInfoKHR, vulkan_h.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR());
                 VkPresentInfoKHR.waitSemaphoreCount$set(pPresentInfoKHR, 1);
-                VkPresentInfoKHR.pWaitSemaphores$set(pPresentInfoKHR, ppSemaphores.asSlice(0).address());
+                VkPresentInfoKHR.pWaitSemaphores$set(pPresentInfoKHR, ppSemaphores.address());
                 VkPresentInfoKHR.swapchainCount$set(pPresentInfoKHR, 1);
-                VkPresentInfoKHR.pSwapchains$set(pPresentInfoKHR, 0, ppSwapChain.asSlice(0).address());
-                VkPresentInfoKHR.pImageIndices$set(pPresentInfoKHR, 0, scope.allocateArray(
-                        C_INT, new int[] {pImageIndex.get(C_INT, 0)}).address());
-                vulkan_h.vkQueuePresentKHR(MemorySegment.ofAddress(ppVkGraphicsQueue.get(C_POINTER, 0), VkQueue.byteSize(), scope), pPresentInfoKHR.address());
+                VkPresentInfoKHR.pSwapchains$set(pPresentInfoKHR, 0, ppSwapChain.address());
+                VkPresentInfoKHR.pImageIndices$set(pPresentInfoKHR, 0, pImageIndex.address());
+                vulkan_h.vkQueuePresentKHR(MemorySegment.ofAddress(ppVkGraphicsQueue.get(C_POINTER, 0), VkQueue.byteSize(), scope), pPresentInfoKHR);
 
                 Windows_h.TranslateMessage(pMsg.address());
                 Windows_h.DispatchMessageW(pMsg.address());
