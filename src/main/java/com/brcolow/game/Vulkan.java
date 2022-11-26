@@ -75,8 +75,10 @@ import java.util.Objects;
 import java.util.Optional;
 
 import static com.brcolow.game.VKResult.VK_ERROR_LAYER_NOT_PRESENT;
+import static com.brcolow.game.VKResult.VK_ERROR_OUT_OF_DATE_KHR;
 import static com.brcolow.game.VKResult.VK_SUCCESS;
 import static com.brcolow.game.VKResult.VkResult;
+import static com.brcolow.game.VkCommandPoolCreateFlagBits.VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 import static com.brcolow.game.VkPhysicalDeviceType.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 import static com.brcolow.game.VkPhysicalDeviceType.VkPhysicalDeviceType;
 import static com.brcolow.vulkanapi.vulkan_h.C_FLOAT;
@@ -251,7 +253,6 @@ public class Vulkan {
                 System.exit(-1);
             } else {
                 System.out.println("vkCreateWin32SurfaceKHR succeeded");
-
             }
 
             MemorySegment pPropertyCount = scope.allocate(C_INT, -1);
@@ -410,7 +411,7 @@ public class Vulkan {
             int swapChainImageFormat = vulkan_h.VK_FORMAT_B8G8R8A8_SRGB();
             var pSwapchainCreateInfoKHR = VkSwapchainCreateInfoKHR.allocate(scope);
             VkSwapchainCreateInfoKHR.sType$set(pSwapchainCreateInfoKHR, vulkan_h.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR());
-            VkSwapchainCreateInfoKHR.surface$set(pSwapchainCreateInfoKHR, ppSurface.get(C_POINTER, 0));
+            VkSwapchainCreateInfoKHR.surface$set(pSwapchainCreateInfoKHR, MemorySegment.ofAddress(ppSurface.get(C_POINTER, 0), VkSurfaceKHR.byteSize(), scope).address());
             VkSwapchainCreateInfoKHR.minImageCount$set(pSwapchainCreateInfoKHR, VkSurfaceCapabilitiesKHR.minImageCount$get(pSurfaceCapabilities) + 1);
             VkSwapchainCreateInfoKHR.imageFormat$set(pSwapchainCreateInfoKHR, swapChainImageFormat);
             VkSwapchainCreateInfoKHR.imageColorSpace$set(pSwapchainCreateInfoKHR, vulkan_h.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR());
@@ -652,7 +653,6 @@ public class Vulkan {
             VkRenderPassCreateInfo.dependencyCount$set(pRenderPassCreateInfo, 1);
             VkRenderPassCreateInfo.pDependencies$set(pRenderPassCreateInfo, pSubpassDependency.address());
 
-
             result = VkResult(vulkan_h.vkCreateRenderPass(vkDevice,
                     pRenderPassCreateInfo, MemoryAddress.NULL, ppRenderPass.address()));
             if (result != VK_SUCCESS) {
@@ -676,8 +676,6 @@ public class Vulkan {
             VkPipelineShaderStageCreateInfo.pName$set(ppStages, 1, scope.allocateUtf8String("main").address());
             VkGraphicsPipelineCreateInfo.stageCount$set(pPipelineCreateInfo, 2);
             VkGraphicsPipelineCreateInfo.pStages$set(pPipelineCreateInfo, ppStages.address());
-            // These are probably wrong, because vulkan is looking for a struct pointer and we are sending the struct...
-            // need to use pp technique.
             VkGraphicsPipelineCreateInfo.pVertexInputState$set(pPipelineCreateInfo, pVertexInputStateInfo.address());
             VkGraphicsPipelineCreateInfo.pInputAssemblyState$set(pPipelineCreateInfo, pPipelineInputAssemblyStateInfo.address());
             VkGraphicsPipelineCreateInfo.pViewportState$set(pPipelineCreateInfo, pPipelineViewportStateInfo.address());
@@ -729,6 +727,7 @@ public class Vulkan {
             var pCommandPoolCreateInfo = VkCommandPoolCreateInfo.allocate(scope);
             VkCommandPoolCreateInfo.sType$set(pCommandPoolCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO());
             VkCommandPoolCreateInfo.queueFamilyIndex$set(pCommandPoolCreateInfo, graphicsQueueFamily.queueFamilyIndex);
+            VkCommandPoolCreateInfo.flags$set(pCommandPoolCreateInfo, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT.getFlag());
 
             result = VkResult(vulkan_h.vkCreateCommandPool(vkDevice,
                     pCommandPoolCreateInfo, MemoryAddress.NULL, ppVkCommandPool.address()));
@@ -826,10 +825,17 @@ public class Vulkan {
                 } else {
                     var pImageIndex = scope.allocate(C_INT, -1);
                     System.out.println("imageIndex: " + pImageIndex.get(C_INT, 0));
-                    vulkan_h.vkAcquireNextImageKHR(vkDevice,
+                    result = VkResult(vulkan_h.vkAcquireNextImageKHR(vkDevice,
                             MemorySegment.ofAddress(pSwapChain, VkSwapchainKHR.byteSize(), scope), Long.MAX_VALUE,
                             MemorySegment.ofAddress(ppSemaphores.asSlice(C_POINTER.byteSize()).get(C_POINTER, 0).address(), VkSemaphore.byteSize(), scope).address(),
-                            vulkan_h.VK_NULL_HANDLE(), pImageIndex.address());
+                            vulkan_h.VK_NULL_HANDLE(), pImageIndex.address()));
+                    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+                        // If the window has been resized, the result will be an out of date error,
+                        // meaning that the swap chain must be resized.
+                    } else if (result != VK_SUCCESS) {
+                        System.out.println("Failed to get next frame via vkAcquireNextImageKHR: " + result);
+                        System.exit(-1);
+                    }
 
                     var pSubmitInfo = VkSubmitInfo.allocate(scope);
                     VkSubmitInfo.sType$set(pSubmitInfo, vulkan_h.VK_STRUCTURE_TYPE_SUBMIT_INFO());
@@ -837,7 +843,7 @@ public class Vulkan {
                     VkSubmitInfo.pWaitSemaphores$set(pSubmitInfo, 0, ppSemaphores.asSlice(0).address());
                     VkSubmitInfo.pWaitDstStageMask$set(pSubmitInfo, scope.allocateArray(C_INT,
                             new int[]{vulkan_h.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT()}).address());
-                    VkSubmitInfo.commandBufferCount$set(pSubmitInfo, 0);
+                    VkSubmitInfo.commandBufferCount$set(pSubmitInfo, 1);
                     VkSubmitInfo.pCommandBuffers$set(pSubmitInfo, ppCommandBuffers.asSlice(C_POINTER.byteSize() *
                             pImageIndex.get(C_INT, 0)).address());
                     VkSubmitInfo.signalSemaphoreCount$set(pSubmitInfo, 1);
