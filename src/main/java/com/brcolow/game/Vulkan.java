@@ -74,6 +74,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Scanner;
 
 import static com.brcolow.game.VKResult.VK_ERROR_LAYER_NOT_PRESENT;
 import static com.brcolow.game.VKResult.VK_ERROR_OUT_OF_DATE_KHR;
@@ -91,7 +92,6 @@ import static com.brcolow.vulkanapi.vulkan_h.VkDevice;
 import static com.brcolow.vulkanapi.vulkan_h.VkPhysicalDevice;
 import static com.brcolow.vulkanapi.vulkan_h.VkSurfaceKHR;
 import static com.brcolow.vulkanapi.vulkan_h.VkSwapchainKHR;
-import static com.brcolow.vulkanapi.vulkan_h.VkImage;
 import static com.brcolow.vulkanapi.vulkan_h.VkShaderModule;
 import static com.brcolow.vulkanapi.vulkan_h.VkPipelineLayout;
 import static com.brcolow.vulkanapi.vulkan_h.VkRenderPass;
@@ -107,7 +107,7 @@ import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
 // https://github.com/ShabbyX/vktut/blob/master/tut1/tut1.c
 public class Vulkan {
-    private static final boolean DEBUG = true;
+    private static final boolean DEBUG = false;
     private static MemoryAddress hwndMain;
 
     public static void main(String[] args) {
@@ -143,14 +143,14 @@ public class Vulkan {
                     scope.allocateUtf8String("VK_KHR_surface"),
                     scope.allocateUtf8String("VK_KHR_win32_surface")};
             var ppEnabledExtensionNames = scope.allocateArray(C_POINTER, enabledExtensionNames.length);
-            for (int i = 0 ; i < enabledExtensionNames.length ; i++) {
+            for (int i = 0; i < enabledExtensionNames.length; i++) {
                 ppEnabledExtensionNames.set(C_POINTER, i * C_POINTER.byteSize(), enabledExtensionNames[i]);
             }
             VkInstanceCreateInfo.ppEnabledExtensionNames$set(pInstanceCreateInfo, ppEnabledExtensionNames.address());
             if (DEBUG) {
                 Addressable[] enabledLayerNames = new Addressable[]{scope.allocateUtf8String("VK_LAYER_KHRONOS_validation")};
                 var ppEnabledLayerNames = scope.allocateArray(C_POINTER, enabledLayerNames.length);
-                for (int i = 0 ; i < enabledLayerNames.length ; i++) {
+                for (int i = 0; i < enabledLayerNames.length; i++) {
                     ppEnabledLayerNames.set(C_POINTER, i * C_POINTER.byteSize(), enabledLayerNames[i]);
                 }
                 VkInstanceCreateInfo.enabledLayerCount$set(pInstanceCreateInfo, 1);
@@ -159,7 +159,7 @@ public class Vulkan {
 
             // VKInstance is an opaque pointer defined by VK_DEFINE_HANDLE macro - so it has C_POINTER byte size (64-bit
             // on 64-bit system).
-            var ppVkInstance = scope.allocate(C_POINTER.byteSize());
+            var ppVkInstance = scope.allocate(C_POINTER);
             var result = VkResult(vulkan_h.vkCreateInstance(pInstanceCreateInfo,
                     MemoryAddress.NULL, ppVkInstance.address()));
             if (result != VK_SUCCESS) {
@@ -190,7 +190,7 @@ public class Vulkan {
                     System.exit(-1);
                 }
                 MemoryAddress debugCallbackFunc = Linker.nativeLinker().upcallStub(debugCallbackHandle,
-                       VulkanDebug.DebugCallback$FUNC, scope).address();
+                        VulkanDebug.DebugCallback$FUNC, scope).address();
 
                 var pDebugUtilsMessengerCreateInfo = VkDebugUtilsMessengerCreateInfoEXT.allocate(scope);
                 VkDebugUtilsMessengerCreateInfoEXT.sType$set(pDebugUtilsMessengerCreateInfo,
@@ -207,8 +207,8 @@ public class Vulkan {
                 VkDebugUtilsMessengerCreateInfoEXT.pUserData$set(pDebugUtilsMessengerCreateInfo, MemoryAddress.NULL);
 
 
-                PFN_vkCreateDebugUtilsMessengerEXT vkCreateDebugUtilsMessengerEXTFunc = PFN_vkCreateDebugUtilsMessengerEXT.ofAddress(
-                        vulkan_h.vkGetInstanceProcAddr(
+                PFN_vkCreateDebugUtilsMessengerEXT vkCreateDebugUtilsMessengerEXTFunc =
+                        PFN_vkCreateDebugUtilsMessengerEXT.ofAddress(vulkan_h.vkGetInstanceProcAddr(
                                 MemorySegment.ofAddress(ppVkInstance.get(C_POINTER, 0), VkInstance.byteSize(), scope),
                                 scope.allocateUtf8String("vkCreateDebugUtilsMessengerEXT")), scope);
 
@@ -245,7 +245,7 @@ public class Vulkan {
             VkWin32SurfaceCreateInfoKHR.hinstance$set(pWin32SurfaceCreateInfo, hinstance);
             VkWin32SurfaceCreateInfoKHR.hwnd$set(pWin32SurfaceCreateInfo, hwndMain);
 
-            var ppSurface = scope.allocate(C_POINTER.byteSize());
+            var ppSurface = scope.allocate(C_POINTER);
             result = VkResult(vulkan_h.vkCreateWin32SurfaceKHR(ppVkInstance.get(C_POINTER, 0),
                     pWin32SurfaceCreateInfo, MemoryAddress.NULL, ppSurface.address()));
             if (result != VK_SUCCESS) {
@@ -275,8 +275,7 @@ public class Vulkan {
 
             // VkPhysicalDevice is an opaque pointer defined by VK_DEFINE_HANDLE macro - so it has C_POINTER byte size
             // (64-bit size on a 64-bit system) - thus an array of them has size = size(C_POINTER) * num devices.
-            MemorySegment pPhysicalDevices = scope.allocate(
-                    C_POINTER.byteSize() * numPhysicalDevices);
+            MemorySegment pPhysicalDevices = scope.allocateArray(C_POINTER, numPhysicalDevices);
             result = VkResult(vulkan_h.vkEnumeratePhysicalDevices(ppVkInstance.get(C_POINTER, 0),
                     pPhysicalDeviceCount.address(),
                     pPhysicalDevices));
@@ -296,7 +295,7 @@ public class Vulkan {
                 vulkan_h.vkGetPhysicalDeviceProperties(physicalDevice, pProperties);
                 var pFeatures = VkPhysicalDeviceFeatures.allocate(scope);
                 vulkan_h.vkGetPhysicalDeviceFeatures(physicalDevice, pFeatures);
-                var pMemoryProperties =  VkPhysicalDeviceMemoryProperties.allocate(scope);
+                var pMemoryProperties = VkPhysicalDeviceMemoryProperties.allocate(scope);
                 vulkan_h.vkGetPhysicalDeviceMemoryProperties(physicalDevice, pMemoryProperties);
 
                 // See how many properties the queue family of the current physical device has, then use that number to
@@ -310,7 +309,8 @@ public class Vulkan {
                 vulkan_h.vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice,
                         pQueueFamilyPropertyCount, pQueueFamilyProperties);
 
-                physicalDevices.add(new PhysicalDevice(scope, physicalDevice, pProperties, pFeatures, pMemoryProperties, queueFamilyPropertyCount, pQueueFamilyProperties, ppSurface));
+                physicalDevices.add(new PhysicalDevice(scope, physicalDevice, pProperties, pFeatures, pMemoryProperties,
+                        queueFamilyPropertyCount, pQueueFamilyProperties, ppSurface));
             }
 
             for (PhysicalDevice physicalDevice : physicalDevices) {
@@ -350,12 +350,12 @@ public class Vulkan {
             VkDeviceCreateInfo.enabledExtensionCount$set(pDeviceCreateInfo, 1);
             Addressable[] enabledDeviceExtensionNames = new Addressable[]{vulkan_h.VK_KHR_SWAPCHAIN_EXTENSION_NAME()};
             var ppEnabledDeviceExtensionNames = scope.allocateArray(C_POINTER, enabledDeviceExtensionNames.length);
-            for (int i = 0 ; i < enabledDeviceExtensionNames.length ; i++) {
+            for (int i = 0; i < enabledDeviceExtensionNames.length; i++) {
                 ppEnabledDeviceExtensionNames.set(C_POINTER, i * C_POINTER.byteSize(), enabledDeviceExtensionNames[i]);
             }
             VkDeviceCreateInfo.ppEnabledExtensionNames$set(pDeviceCreateInfo, ppEnabledDeviceExtensionNames.address());
 
-            var ppVkDevice = scope.allocate(C_POINTER.byteSize());
+            var ppVkDevice = scope.allocate(C_POINTER);
             result = VkResult(vulkan_h.vkCreateDevice(graphicsQueueFamily.physicalDevice, pDeviceCreateInfo,
                     MemoryAddress.NULL, ppVkDevice.address()));
             if (result != VK_SUCCESS) {
@@ -402,7 +402,7 @@ public class Vulkan {
                 System.out.println("vkGetPhysicalDeviceSurfaceCapabilitiesKHR succeeded");
             }
 
-            var ppVkGraphicsQueue = scope.allocate(C_POINTER.byteSize());
+            var ppVkGraphicsQueue = scope.allocate(C_POINTER);
             vulkan_h.vkGetDeviceQueue(MemorySegment.ofAddress(ppVkDevice.get(C_POINTER, 0), VkDevice.byteSize(), scope),
                     graphicsQueueFamily.queueFamilyIndex, 0, ppVkGraphicsQueue.address());
 
@@ -455,19 +455,23 @@ public class Vulkan {
 
             System.out.println("numSwapChainImages: " + numSwapChainImages);
 
-            MemorySegment ppSwapChainImages = scope.allocate(
-                    C_POINTER.byteSize() * numSwapChainImages);
+            MemorySegment ppSwapChainImages = scope.allocateArray(
+                    C_POINTER, numSwapChainImages);
             vulkan_h.vkGetSwapchainImagesKHR(vkDevice,
                     MemorySegment.ofAddress(pSwapChain, VkSwapchainKHR.byteSize(), scope),
                     pSwapChainImagesCount,
                     ppSwapChainImages.address());
 
-            var ppImageView = scope.allocate(C_POINTER.byteSize());
-            List<MemoryAddress> imageViews = new ArrayList<>();
+            // FIXME: This part here is what I think is responsible for having the triangle only show up on one
+            //  of the three image views. At full speed, this induces flickering. Interestingly if we declare ppImageView
+            //  inside the loop, then the triangle is only rendered on the last (index 2) image view. If we move ppImageView
+            //  declaration inside the loop, the triangle only shows on the first (index 0) image view.
+            List<MemorySegment> imageViews = new ArrayList<>();
             for (int i = 0; i < numSwapChainImages; i++) {
+                var ppImageView = scope.allocate(C_POINTER);
                 var pImageViewCreateInfo = VkImageViewCreateInfo.allocate(scope);
                 VkImageViewCreateInfo.sType$set(pImageViewCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO());
-                VkImageViewCreateInfo.image$set(pImageViewCreateInfo, MemorySegment.ofAddress(ppSwapChainImages.get(C_POINTER, i * C_POINTER.byteSize()), VkImage.byteSize(), scope).address());
+                VkImageViewCreateInfo.image$set(pImageViewCreateInfo, ppSwapChainImages.getAtIndex(C_POINTER, i));
                 VkImageViewCreateInfo.viewType$set(pImageViewCreateInfo, vulkan_h.VK_IMAGE_VIEW_TYPE_2D());
                 VkImageViewCreateInfo.format$set(pImageViewCreateInfo, swapChainImageFormat);
                 VkComponentMapping.r$set(VkImageViewCreateInfo.components$slice(pImageViewCreateInfo), vulkan_h.VK_COMPONENT_SWIZZLE_IDENTITY());
@@ -489,7 +493,7 @@ public class Vulkan {
                     System.out.println("vkCreateImageView succeeded");
                 }
 
-                imageViews.add(ppImageView.address());
+                imageViews.add(ppImageView);
             }
 
             System.out.println("imageView size: " + imageViews.size());
@@ -600,7 +604,7 @@ public class Vulkan {
             VkPipelineColorBlendStateCreateInfo.attachmentCount$set(pPipelineColorBlendStateInfo, 1);
             VkPipelineColorBlendStateCreateInfo.pAttachments$set(pPipelineColorBlendStateInfo, pPipelineColorBlendAttachmentState.address());
 
-            var ppPipelineLayout = scope.allocate(C_POINTER.byteSize());
+            var ppPipelineLayout = scope.allocate(C_POINTER);
             var pPipelineLayoutCreateInfo = VkPipelineLayoutCreateInfo.allocate(scope);
             VkPipelineLayoutCreateInfo.sType$set(pPipelineLayoutCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO());
 
@@ -640,7 +644,7 @@ public class Vulkan {
             VkSubpassDependency.dstStageMask$set(pSubpassDependency, vulkan_h.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT());
             VkSubpassDependency.dstAccessMask$set(pSubpassDependency, vulkan_h.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT());
 
-            var ppRenderPass = scope.allocate(C_POINTER.byteSize());
+            var ppRenderPass = scope.allocate(C_POINTER);
             var pRenderPassCreateInfo = VkRenderPassCreateInfo.allocate(scope);
             VkRenderPassCreateInfo.sType$set(pRenderPassCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO());
             VkRenderPassCreateInfo.attachmentCount$set(pRenderPassCreateInfo, 1);
@@ -698,13 +702,13 @@ public class Vulkan {
             }
 
             List<MemorySegment> ppSwapChainFramebuffers = new ArrayList<>();
-            for (MemoryAddress imageView : imageViews) {
-                var ppVkFramebuffer = scope.allocate(C_POINTER.byteSize());
+            for (MemorySegment imageView : imageViews) {
+                var ppVkFramebuffer = scope.allocate(C_POINTER);
                 var pFramebufferCreateInfo = VkFramebufferCreateInfo.allocate(scope);
                 VkFramebufferCreateInfo.sType$set(pFramebufferCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO());
                 VkFramebufferCreateInfo.renderPass$set(pFramebufferCreateInfo, MemorySegment.ofAddress(ppRenderPass.get(C_POINTER, 0), VkRenderPass.byteSize(), scope).address());
                 VkFramebufferCreateInfo.attachmentCount$set(pFramebufferCreateInfo, 1);
-                VkFramebufferCreateInfo.pAttachments$set(pFramebufferCreateInfo, imageView);
+                VkFramebufferCreateInfo.pAttachments$set(pFramebufferCreateInfo, imageView.address());
                 VkFramebufferCreateInfo.width$set(pFramebufferCreateInfo, width);
                 VkFramebufferCreateInfo.height$set(pFramebufferCreateInfo, height);
                 VkFramebufferCreateInfo.layers$set(pFramebufferCreateInfo, 1);
@@ -722,7 +726,7 @@ public class Vulkan {
 
             System.out.println("Created " + ppSwapChainFramebuffers.size() + " frame buffers.");
 
-            var ppVkCommandPool = scope.allocate(C_POINTER.byteSize());
+            var ppVkCommandPool = scope.allocate(C_POINTER);
             var pCommandPoolCreateInfo = VkCommandPoolCreateInfo.allocate(scope);
             VkCommandPoolCreateInfo.sType$set(pCommandPoolCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO());
             VkCommandPoolCreateInfo.queueFamilyIndex$set(pCommandPoolCreateInfo, graphicsQueueFamily.queueFamilyIndex);
@@ -737,8 +741,7 @@ public class Vulkan {
                 System.out.println("vkCreateCommandPool succeeded");
             }
 
-            MemorySegment ppCommandBuffers = scope.allocate(
-                    C_POINTER.byteSize() * ppSwapChainFramebuffers.size());
+            MemorySegment ppCommandBuffers = scope.allocateArray(C_POINTER, ppSwapChainFramebuffers.size());
             var pCommandBufferAllocateInfo = VkCommandBufferAllocateInfo.allocate(scope);
             VkCommandBufferAllocateInfo.sType$set(pCommandBufferAllocateInfo, vulkan_h.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO());
             VkCommandBufferAllocateInfo.commandPool$set(pCommandBufferAllocateInfo, MemorySegment.ofAddress(ppVkCommandPool.get(C_POINTER, 0), VkCommandPool.byteSize(), scope).address());
@@ -783,7 +786,7 @@ public class Vulkan {
                 pClearValue.setAtIndex(C_FLOAT, 3, 1.0f);
                 VkRenderPassBeginInfo.pClearValues$set(pRenderPassBeginInfo, pClearValue.address());
 
-                var vkCommandBuffer = MemorySegment.ofAddress(ppCommandBuffers.get(C_POINTER, C_POINTER.byteSize() * i), VkCommandBuffer.byteSize(), scope);
+                var vkCommandBuffer = MemorySegment.ofAddress(ppCommandBuffers.getAtIndex(C_POINTER, i), VkCommandBuffer.byteSize(), scope);
 
                 vulkan_h.vkCmdBeginRenderPass(vkCommandBuffer, pRenderPassBeginInfo, vulkan_h.VK_SUBPASS_CONTENTS_INLINE());
                 vulkan_h.vkCmdBindPipeline(vkCommandBuffer,
@@ -805,7 +808,7 @@ public class Vulkan {
 
             MemorySegment ppSemaphores = scope.allocateArray(C_POINTER, 2);
 
-            for (int i = 0 ; i < 2 ; i++) {
+            for (int i = 0; i < 2; i++) {
                 result = VkResult(vulkan_h.vkCreateSemaphore(vkDevice,
                         pSemaphoreCreateInfo, MemoryAddress.NULL, ppSemaphores.asSlice(C_POINTER.byteSize() * i)));
                 if (result != VK_SUCCESS) {
@@ -817,8 +820,8 @@ public class Vulkan {
             }
 
             MemorySegment pMsg = MSG.allocate(scope);
-            int getMessageRet;
-            while ((getMessageRet = Windows_h.PeekMessageW(pMsg.address(), MemoryAddress.NULL, 0, 0, Windows_h.PM_REMOVE())) != -1) {
+            boolean exitRequested = false;
+            while (!exitRequested) {
                 var pImageIndex = scope.allocate(C_INT, -1);
                 result = VkResult(vulkan_h.vkAcquireNextImageKHR(vkDevice,
                         MemorySegment.ofAddress(pSwapChain, VkSwapchainKHR.byteSize(), scope), Long.MAX_VALUE,
@@ -873,9 +876,52 @@ public class Vulkan {
                 VkPresentInfoKHR.pSwapchains$set(pPresentInfoKHR, 0, ppSwapChain.address());
                 VkPresentInfoKHR.pImageIndices$set(pPresentInfoKHR, 0, pImageIndex.address());
                 vulkan_h.vkQueuePresentKHR(MemorySegment.ofAddress(ppVkGraphicsQueue.get(C_POINTER, 0), VkQueue.byteSize(), scope), pPresentInfoKHR);
-
-                Windows_h.TranslateMessage(pMsg.address());
-                Windows_h.DispatchMessageW(pMsg.address());
+                while ((Windows_h.PeekMessageW(pMsg.address(), MemoryAddress.NULL, 0, 0, Windows_h.PM_REMOVE())) != 0) {
+                    System.out.println("message: " + MSG.message$get(pMsg));
+                    int message = MSG.message$get(pMsg);
+                    if (message == Windows_h.WM_QUIT()) {
+                        System.out.println("WM_QUIT fired");
+                    } else if (message == Windows_h.WM_CLOSE()) {
+                        System.out.println("WM_CLOSE fired");
+                    } else if (message == Windows_h.WM_KEYDOWN() ||
+                            message == Windows_h.WM_SYSKEYDOWN() ||
+                            message == Windows_h.WM_KEYUP() ||
+                            message == Windows_h.WM_SYSKEYUP()) {
+                        long virtualKeyCode = MSG.wParam$get(pMsg);
+                        long lParam = MSG.lParam$get(pMsg);
+                        if ((lParam & (1L << 31)) == 0) {
+                            // Key down
+                            System.out.println("virtual key code: " + virtualKeyCode + " DOWN");
+                        } else {
+                            // Key up
+                            System.out.println("virtual key code: " + virtualKeyCode + " UP");
+                        }
+                    } else if (message == Windows_h.WM_MOUSEMOVE() ||
+                            message == Windows_h.WM_LBUTTONDOWN() ||
+                            message == Windows_h.WM_LBUTTONUP() ||
+                            message == Windows_h.WM_LBUTTONDBLCLK() ||
+                            message == Windows_h.WM_RBUTTONDOWN() ||
+                            message == Windows_h.WM_RBUTTONUP() ||
+                            message == Windows_h.WM_RBUTTONDBLCLK() ||
+                            message == Windows_h.WM_MBUTTONDOWN() ||
+                            message == Windows_h.WM_MBUTTONUP() ||
+                            message == Windows_h.WM_MBUTTONDBLCLK() ||
+                            message == Windows_h.WM_XBUTTONDOWN() ||
+                            message == Windows_h.WM_XBUTTONUP() ||
+                            message == Windows_h.WM_XBUTTONDBLCLK() ||
+                            message == Windows_h.WM_MOUSEWHEEL() ||
+                            message == Windows_h.WM_MOUSEHWHEEL() ||
+                            message == Windows_h.WM_MOUSELEAVE()) {
+                        long lParam = MSG.lParam$get(pMsg);
+                        // These are from Windowsx.h - we could use jextract to generate but for now...
+                        int xCoord = WindowsUtils.GET_X_LPARAM(lParam);
+                        int yCoord = WindowsUtils.GET_Y_LPARAM(lParam);
+                    }
+                    Windows_h.TranslateMessage(pMsg.address());
+                    Windows_h.DispatchMessageW(pMsg.address());
+                }
+                Scanner scanner = new Scanner(System.in);
+                scanner.next();
             }
         }
     }
