@@ -25,3 +25,7 @@ glslc can be downloaded from https://github.com/google/shaderc or by downloading
 
 Setting `DEBUG` to true in `Vulkan.java` enables the `VK_LAYER_KHRONOS_validation` layer. For this to work the 
 [Vulkan SDK](https://vulkan.lunarg.com/sdk/home) must be installed.
+
+## Screenshot
+
+![java-vulkan](/triangle.png?raw=true)

@@ -466,6 +466,7 @@ public class Vulkan {
             //  of the three image views. At full speed, this induces flickering. Interestingly if we declare ppImageView
             //  inside the loop, then the triangle is only rendered on the last (index 2) image view. If we move ppImageView
             //  declaration inside the loop, the triangle only shows on the first (index 0) image view.
+
             List<MemorySegment> imageViews = new ArrayList<>();
             for (int i = 0; i < numSwapChainImages; i++) {
                 var ppImageView = scope.allocate(C_POINTER);
@@ -691,7 +692,7 @@ public class Vulkan {
             VkGraphicsPipelineCreateInfo.basePipelineHandle$set(pPipelineCreateInfo, vulkan_h.VK_NULL_HANDLE());
             VkGraphicsPipelineCreateInfo.basePipelineIndex$set(pPipelineCreateInfo, -1);
 
-            var ppVkPipeline = scope.allocate(C_POINTER.byteSize());
+            var ppVkPipeline = scope.allocate(C_POINTER);
             result = VkResult(vulkan_h.vkCreateGraphicsPipelines(vkDevice,
                     vulkan_h.VK_NULL_HANDLE(), 1, pPipelineCreateInfo, MemoryAddress.NULL, ppVkPipeline.address()));
             if (result != VK_SUCCESS) {
@@ -702,13 +703,14 @@ public class Vulkan {
             }
 
             List<MemorySegment> ppSwapChainFramebuffers = new ArrayList<>();
-            for (MemorySegment imageView : imageViews) {
+            for (int i = 0; i < imageViews.size(); i++) {
                 var ppVkFramebuffer = scope.allocate(C_POINTER);
                 var pFramebufferCreateInfo = VkFramebufferCreateInfo.allocate(scope);
                 VkFramebufferCreateInfo.sType$set(pFramebufferCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO());
                 VkFramebufferCreateInfo.renderPass$set(pFramebufferCreateInfo, MemorySegment.ofAddress(ppRenderPass.get(C_POINTER, 0), VkRenderPass.byteSize(), scope).address());
                 VkFramebufferCreateInfo.attachmentCount$set(pFramebufferCreateInfo, 1);
-                VkFramebufferCreateInfo.pAttachments$set(pFramebufferCreateInfo, imageView.address());
+                // FIXME: If we set this to a fixed number, instead of i, that is the nth frame that shows the triangle...
+                VkFramebufferCreateInfo.pAttachments$set(pFramebufferCreateInfo, imageViews.get(1).address());
                 VkFramebufferCreateInfo.width$set(pFramebufferCreateInfo, width);
                 VkFramebufferCreateInfo.height$set(pFramebufferCreateInfo, height);
                 VkFramebufferCreateInfo.layers$set(pFramebufferCreateInfo, 1);
@@ -758,10 +760,11 @@ public class Vulkan {
             }
 
             for (int i = 0; i < ppSwapChainFramebuffers.size(); i++) {
+                System.out.println("Frame buffer i = " + i);
                 var pCommandBufferBeginInfo = VkCommandBufferBeginInfo.allocate(scope);
                 VkCommandBufferBeginInfo.sType$set(pCommandBufferBeginInfo, vulkan_h.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO());
 
-                result = VkResult(vulkan_h.vkBeginCommandBuffer(ppCommandBuffers.get(C_POINTER, C_POINTER.byteSize() * i),
+                result = VkResult(vulkan_h.vkBeginCommandBuffer(ppCommandBuffers.getAtIndex(C_POINTER, i),
                         pCommandBufferBeginInfo));
                 if (result != VK_SUCCESS) {
                     System.out.println("vkBeginCommandBuffer failed: " + result);
@@ -773,7 +776,8 @@ public class Vulkan {
                 var pRenderPassBeginInfo = VkRenderPassBeginInfo.allocate(scope);
                 VkRenderPassBeginInfo.sType$set(pRenderPassBeginInfo, vulkan_h.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO());
                 VkRenderPassBeginInfo.renderPass$set(pRenderPassBeginInfo, MemorySegment.ofAddress(ppRenderPass.get(C_POINTER, 0), VkRenderPass.byteSize(), scope).address());
-                VkRenderPassBeginInfo.framebuffer$set(pRenderPassBeginInfo, MemorySegment.ofAddress(ppSwapChainFramebuffers.get(i).get(C_POINTER, 0), VkFramebuffer.byteSize(), scope).address());
+                // FIXME: No matter if we get(0), or get(i), or any number between 0-2 it doesn't change which frame shows the triangle...
+                VkRenderPassBeginInfo.framebuffer$set(pRenderPassBeginInfo, MemorySegment.ofAddress(ppSwapChainFramebuffers.get(0).get(C_POINTER, 0), VkFramebuffer.byteSize(), scope).address());
                 VkOffset2D.x$set(VkRect2D.offset$slice(VkRenderPassBeginInfo.renderArea$slice(pRenderPassBeginInfo)), 0);
                 VkOffset2D.y$set(VkRect2D.offset$slice(VkRenderPassBeginInfo.renderArea$slice(pRenderPassBeginInfo)), 0);
                 VkExtent2D.width$set(VkRect2D.extent$slice(VkRenderPassBeginInfo.renderArea$slice(pRenderPassBeginInfo)), width);
@@ -850,7 +854,7 @@ public class Vulkan {
                 var pFenceCreateInfo = VkFenceCreateInfo.allocate(scope);
                 VkFenceCreateInfo.sType$set(pFenceCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO());
                 VkFenceCreateInfo.flags$set(pFenceCreateInfo, 0);
-                var ppFence = scope.allocate(C_POINTER.byteSize());
+                var ppFence = scope.allocate(C_POINTER);
                 result = VkResult(vulkan_h.vkCreateFence(vkDevice, pFenceCreateInfo.address(), MemoryAddress.NULL, ppFence.address()));
                 if (result != VK_SUCCESS) {
                     System.out.println("vkCreateFence failed: " + result);
@@ -868,6 +872,10 @@ public class Vulkan {
                     System.out.println("vkQueueSubmit succeeded!");
                 }
 
+                // FIXME: This is a bit of nonsense we do to fix 2 out of 3 of the images being blank, and only one
+                //  (which we manually set to 1) being the triangle. In other words, we are not asking Vulkan which
+                //  image index to display, we just display image index 1 each time :).
+                pImageIndex.set(C_INT, 0, 1);
                 var pPresentInfoKHR = VkPresentInfoKHR.allocate(scope);
                 VkPresentInfoKHR.sType$set(pPresentInfoKHR, vulkan_h.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR());
                 VkPresentInfoKHR.waitSemaphoreCount$set(pPresentInfoKHR, 1);
@@ -920,8 +928,6 @@ public class Vulkan {
                     Windows_h.TranslateMessage(pMsg.address());
                     Windows_h.DispatchMessageW(pMsg.address());
                 }
-                Scanner scanner = new Scanner(System.in);
-                scanner.next();
             }
         }
     }
@@ -939,7 +945,7 @@ public class Vulkan {
         VkShaderModuleCreateInfo.pCode$set(pShaderModuleCreateInfo, scope.allocateArray(C_CHAR,
                 shaderSpv).address());
 
-        var ppShaderModule = scope.allocate(C_POINTER.byteSize());
+        var ppShaderModule = scope.allocate(C_POINTER);
         var result = VkResult(vulkan_h.vkCreateShaderModule(vkDevice,
                 pShaderModuleCreateInfo, MemoryAddress.NULL, ppShaderModule.address()));
         if (result != VK_SUCCESS) {
