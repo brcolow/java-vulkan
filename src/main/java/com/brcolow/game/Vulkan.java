@@ -107,7 +107,7 @@ import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
 // https://github.com/ShabbyX/vktut/blob/master/tut1/tut1.c
 public class Vulkan {
-    private static final boolean DEBUG = false;
+    private static final boolean DEBUG = true;
     private static MemoryAddress hwndMain;
 
     public static void main(String[] args) {
@@ -378,12 +378,28 @@ public class Vulkan {
             var pSemaphores = createSemaphores(scope, vkDevice);
 
             MemorySegment pMsg = MSG.allocate(scope);
+
+            var pFenceCreateInfo = VkFenceCreateInfo.allocate(scope);
+            VkFenceCreateInfo.sType$set(pFenceCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO());
+            VkFenceCreateInfo.flags$set(pFenceCreateInfo, vulkan_h.VK_FENCE_CREATE_SIGNALED_BIT());
+            var pFence = scope.allocate(C_POINTER);
+            result = VkResult(vulkan_h.vkCreateFence(vkDevice, pFenceCreateInfo, MemoryAddress.NULL, pFence));
+            if (result != VK_SUCCESS) {
+                System.out.println("vkCreateFence failed: " + result);
+                System.exit(-1);
+            } else {
+                System.out.println("vkCreateFence succeeded!");
+            }
+            var fence = MemorySegment.ofAddress(pFence.get(C_POINTER, 0), VkFence.byteSize(), scope);
+
             boolean exitRequested = false;
             while (!exitRequested) {
+                VkResult(vulkan_h.vkWaitForFences(vkDevice, 1, pFence, vulkan_h.VK_TRUE(), 100000000000L));
+                vulkan_h.vkResetFences(vkDevice,1, pFence);
                 var pImageIndex = scope.allocate(C_INT, -1);
                 result = VkResult(vulkan_h.vkAcquireNextImageKHR(vkDevice,
                         swapChain, Long.MAX_VALUE,
-                        MemorySegment.ofAddress(pSemaphores.asSlice(C_POINTER.byteSize()).get(C_POINTER, 0), VkSemaphore.byteSize(), scope),
+                        MemorySegment.ofAddress(pSemaphores.get(C_POINTER, 0), VkSemaphore.byteSize(), scope),
                         vulkan_h.VK_NULL_HANDLE(), pImageIndex));
                 System.out.println("imageIndex: " + pImageIndex.get(C_INT, 0));
                 if (result == VK_ERROR_OUT_OF_DATE_KHR) {
@@ -394,8 +410,7 @@ public class Vulkan {
                     System.exit(-1);
                 }
 
-                MemorySegment pFence = submitQueue(scope, vkDevice, pVkGraphicsQueue, pCommandBuffers, pSemaphores, pImageIndex);
-                VkResult(vulkan_h.vkWaitForFences(vkDevice, 1, pFence, vulkan_h.VK_TRUE(), 100000000000L));
+                submitQueue(scope, pVkGraphicsQueue, pCommandBuffers, pSemaphores, pImageIndex, fence);
                 presentQueue(scope, pVkGraphicsQueue, pSwapChain, pSemaphores, pImageIndex);
 
                 while ((Windows_h.PeekMessageW(pMsg, MemoryAddress.NULL, 0, 0, Windows_h.PM_REMOVE())) != 0) {
@@ -1060,8 +1075,9 @@ public class Vulkan {
         return pSemaphores;
     }
 
-    private static MemorySegment submitQueue(MemorySession scope, MemorySegment vkDevice, MemorySegment pVkGraphicsQueue,
-                                             MemorySegment pCommandBuffers, MemorySegment pSemaphores, MemorySegment imageIndex) {
+    private static void submitQueue(MemorySession scope, MemorySegment pVkGraphicsQueue,
+                                    MemorySegment pCommandBuffers, MemorySegment pSemaphores,
+                                    MemorySegment imageIndex, MemorySegment fence) {
         VKResult result;
         var pSubmitInfo = VkSubmitInfo.allocate(scope);
         VkSubmitInfo.sType$set(pSubmitInfo, vulkan_h.VK_STRUCTURE_TYPE_SUBMIT_INFO());
@@ -1072,20 +1088,8 @@ public class Vulkan {
         VkSubmitInfo.commandBufferCount$set(pSubmitInfo, 1);
         VkSubmitInfo.pCommandBuffers$set(pSubmitInfo, pCommandBuffers.asSlice(imageIndex.get(C_INT, 0) * C_POINTER.byteSize()).address());
         VkSubmitInfo.signalSemaphoreCount$set(pSubmitInfo, 1);
-        VkSubmitInfo.pSignalSemaphores$set(pSubmitInfo, 0, pSemaphores.asSlice(C_POINTER.byteSize()).address());
+        VkSubmitInfo.pSignalSemaphores$set(pSubmitInfo, 0, pSemaphores.address());
 
-        var pFenceCreateInfo = VkFenceCreateInfo.allocate(scope);
-        VkFenceCreateInfo.sType$set(pFenceCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO());
-        VkFenceCreateInfo.flags$set(pFenceCreateInfo, 0);
-        var pFence = scope.allocate(C_POINTER);
-        result = VkResult(vulkan_h.vkCreateFence(vkDevice, pFenceCreateInfo, MemoryAddress.NULL, pFence));
-        if (result != VK_SUCCESS) {
-            System.out.println("vkCreateFence failed: " + result);
-            System.exit(-1);
-        } else {
-            System.out.println("vkCreateFence succeeded!");
-        }
-        var fence = MemorySegment.ofAddress(pFence.get(C_POINTER, 0), VkFence.byteSize(), scope);
         result = VkResult(vulkan_h.vkQueueSubmit(MemorySegment.ofAddress(pVkGraphicsQueue.get(C_POINTER, 0), VkQueue.byteSize(), scope), 1,
                 pSubmitInfo, fence));
         if (result != VK_SUCCESS) {
@@ -1094,7 +1098,6 @@ public class Vulkan {
         } else {
             System.out.println("vkQueueSubmit succeeded!");
         }
-        return pFence;
     }
 
     private static void presentQueue(MemorySession scope, MemorySegment pVkGraphicsQueue, MemorySegment pSwapChain,
