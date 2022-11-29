@@ -107,7 +107,7 @@ import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
 // https://github.com/ShabbyX/vktut/blob/master/tut1/tut1.c
 public class Vulkan {
-    private static final boolean DEBUG = true;
+    private static final boolean DEBUG = false;
     private static MemoryAddress hwndMain;
 
     public static void main(String[] args) {
@@ -392,8 +392,17 @@ public class Vulkan {
             }
             var fence = MemorySegment.ofAddress(pFence.get(C_POINTER, 0), VkFence.byteSize(), scope);
 
+            long lastFrameTimeNanos = 0;
+
             boolean exitRequested = false;
             while (!exitRequested) {
+                if (lastFrameTimeNanos > 0) {
+                    long nanosElapsed = System.nanoTime() - lastFrameTimeNanos;
+                    double frameRate = 1000000000.0 / nanosElapsed;
+                    System.out.println("INSTANTANEOUS FPS: " + frameRate);
+                }
+                lastFrameTimeNanos = System.nanoTime();
+
                 VkResult(vulkan_h.vkWaitForFences(vkDevice, 1, pFence, vulkan_h.VK_TRUE(), 100000000000L));
                 vulkan_h.vkResetFences(vkDevice,1, pFence);
                 var pImageIndex = scope.allocate(C_INT, -1);
@@ -420,6 +429,7 @@ public class Vulkan {
                         System.out.println("WM_QUIT fired");
                     } else if (message == Windows_h.WM_CLOSE()) {
                         System.out.println("WM_CLOSE fired");
+                        exitRequested = true;
                     } else if (message == Windows_h.WM_KEYDOWN() ||
                             message == Windows_h.WM_SYSKEYDOWN() ||
                             message == Windows_h.WM_KEYUP() ||
@@ -810,7 +820,8 @@ public class Vulkan {
         VkSwapchainCreateInfoKHR.imageSharingMode$set(swapchainCreateInfoKHR, vulkan_h.VK_SHARING_MODE_EXCLUSIVE());
         VkSwapchainCreateInfoKHR.preTransform$set(swapchainCreateInfoKHR, VkSurfaceCapabilitiesKHR.currentTransform$get(pSurfaceCapabilities));
         VkSwapchainCreateInfoKHR.compositeAlpha$set(swapchainCreateInfoKHR, vulkan_h.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR());
-        VkSwapchainCreateInfoKHR.presentMode$set(swapchainCreateInfoKHR, vulkan_h.VK_PRESENT_MODE_FIFO_KHR());
+        VkSwapchainCreateInfoKHR.presentMode$set(swapchainCreateInfoKHR, vulkan_h.VK_PRESENT_MODE_IMMEDIATE_KHR()); // Can produce tearing (used to see what max FPS is like).
+        // VkSwapchainCreateInfoKHR.presentMode$set(swapchainCreateInfoKHR, vulkan_h.VK_PRESENT_MODE_FIFO_KHR()); // This essentially sets VSYNC.
         VkSwapchainCreateInfoKHR.clipped$set(swapchainCreateInfoKHR, vulkan_h.VK_TRUE());
         VkSwapchainCreateInfoKHR.oldSwapchain$set(swapchainCreateInfoKHR, vulkan_h.VK_NULL_HANDLE());
 
