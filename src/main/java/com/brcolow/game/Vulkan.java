@@ -463,11 +463,15 @@ public class Vulkan {
                         // These are from Windowsx.h - we could use jextract to generate but for now...
                         int xCoord = WindowsUtils.GET_X_LPARAM(lParam);
                         int yCoord = WindowsUtils.GET_Y_LPARAM(lParam);
+                    } else {
+                        Windows_h.DefWindowProcW(hwndMain, message, MSG.wParam$get(pMsg), MSG.lParam$get(pMsg));
                     }
                     Windows_h.TranslateMessage(pMsg.address());
                     Windows_h.DispatchMessageW(pMsg.address());
                 }
             }
+            vulkan_h.vkDestroyDevice(vkDevice, MemoryAddress.NULL);
+            vulkan_h.vkDestroyInstance(vkInstance, MemoryAddress.NULL);
         }
     }
 
