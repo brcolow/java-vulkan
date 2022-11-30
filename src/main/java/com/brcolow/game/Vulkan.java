@@ -394,8 +394,7 @@ public class Vulkan {
 
             long lastFrameTimeNanos = 0;
 
-            boolean exitRequested = false;
-            while (!exitRequested) {
+            while (!WindowProc.getExitRequested().get()) {
                 if (lastFrameTimeNanos > 0) {
                     long nanosElapsed = System.nanoTime() - lastFrameTimeNanos;
                     double frameRate = 1000000000.0 / nanosElapsed;
@@ -410,7 +409,6 @@ public class Vulkan {
                         swapChain, Long.MAX_VALUE,
                         MemorySegment.ofAddress(pSemaphores.get(C_POINTER, 0), VkSemaphore.byteSize(), scope),
                         vulkan_h.VK_NULL_HANDLE(), pImageIndex));
-                System.out.println("imageIndex: " + pImageIndex.get(C_INT, 0));
                 if (result == VK_ERROR_OUT_OF_DATE_KHR) {
                     // If the window has been resized, the result will be an out of date error,
                     // meaning that the swap chain must be resized.
@@ -422,54 +420,22 @@ public class Vulkan {
                 submitQueue(scope, pVkGraphicsQueue, pCommandBuffers, pSemaphores, pImageIndex, fence);
                 presentQueue(scope, pVkGraphicsQueue, pSwapChain, pSemaphores, pImageIndex);
 
+                System.out.println("imageIndex: " + pImageIndex.get(C_INT, 0));
                 while ((Windows_h.PeekMessageW(pMsg, MemoryAddress.NULL, 0, 0, Windows_h.PM_REMOVE())) != 0) {
-                    System.out.println("message: " + MSG.message$get(pMsg));
-                    int message = MSG.message$get(pMsg);
-                    if (message == Windows_h.WM_QUIT()) {
-                        System.out.println("WM_QUIT fired");
-                    } else if (message == Windows_h.WM_CLOSE()) {
-                        System.out.println("WM_CLOSE fired");
-                        exitRequested = true;
-                    } else if (message == Windows_h.WM_KEYDOWN() ||
-                            message == Windows_h.WM_SYSKEYDOWN() ||
-                            message == Windows_h.WM_KEYUP() ||
-                            message == Windows_h.WM_SYSKEYUP()) {
-                        long virtualKeyCode = MSG.wParam$get(pMsg);
-                        long lParam = MSG.lParam$get(pMsg);
-                        if ((lParam & (1L << 31)) == 0) {
-                            // Key down
-                            System.out.println("virtual key code: " + virtualKeyCode + " DOWN");
-                        } else {
-                            // Key up
-                            System.out.println("virtual key code: " + virtualKeyCode + " UP");
-                        }
-                    } else if (message == Windows_h.WM_MOUSEMOVE() ||
-                            message == Windows_h.WM_LBUTTONDOWN() ||
-                            message == Windows_h.WM_LBUTTONUP() ||
-                            message == Windows_h.WM_LBUTTONDBLCLK() ||
-                            message == Windows_h.WM_RBUTTONDOWN() ||
-                            message == Windows_h.WM_RBUTTONUP() ||
-                            message == Windows_h.WM_RBUTTONDBLCLK() ||
-                            message == Windows_h.WM_MBUTTONDOWN() ||
-                            message == Windows_h.WM_MBUTTONUP() ||
-                            message == Windows_h.WM_MBUTTONDBLCLK() ||
-                            message == Windows_h.WM_XBUTTONDOWN() ||
-                            message == Windows_h.WM_XBUTTONUP() ||
-                            message == Windows_h.WM_XBUTTONDBLCLK() ||
-                            message == Windows_h.WM_MOUSEWHEEL() ||
-                            message == Windows_h.WM_MOUSEHWHEEL() ||
-                            message == Windows_h.WM_MOUSELEAVE()) {
-                        long lParam = MSG.lParam$get(pMsg);
-                        // These are from Windowsx.h - we could use jextract to generate but for now...
-                        int xCoord = WindowsUtils.GET_X_LPARAM(lParam);
-                        int yCoord = WindowsUtils.GET_Y_LPARAM(lParam);
-                    } else {
-                        Windows_h.DefWindowProcW(hwndMain, message, MSG.wParam$get(pMsg), MSG.lParam$get(pMsg));
-                    }
                     Windows_h.TranslateMessage(pMsg.address());
                     Windows_h.DispatchMessageW(pMsg.address());
                 }
             }
+
+            System.out.println("exit requested");
+            vulkan_h.vkDestroyFence(vkDevice, fence, MemoryAddress.NULL);
+            vulkan_h.vkDestroySemaphore(vkDevice, MemorySegment.ofAddress(
+                    pSemaphores.get(C_POINTER, 0), VkSemaphore.byteSize(), scope), MemoryAddress.NULL);
+            vulkan_h.vkFreeCommandBuffers(vkDevice, MemorySegment.ofAddress(
+                    pVkCommandPool.get(C_POINTER, 0), VkCommandPool.byteSize(), scope),
+                    pSwapChainFramebuffers.size(), pCommandBuffers);
+            vulkan_h.vkDestroySwapchainKHR(vkDevice, swapChain, MemoryAddress.NULL);
+            vulkan_h.vkDestroySurfaceKHR(vkInstance, vkSurface, MemoryAddress.NULL);
             vulkan_h.vkDestroyDevice(vkDevice, MemoryAddress.NULL);
             vulkan_h.vkDestroyInstance(vkInstance, MemoryAddress.NULL);
         }
@@ -1111,7 +1077,7 @@ public class Vulkan {
             System.out.println("vkQueueSubmit failed: " + result);
             System.exit(-1);
         } else {
-            System.out.println("vkQueueSubmit succeeded!");
+            // System.out.println("vkQueueSubmit succeeded!");
         }
     }
 
