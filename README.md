@@ -5,7 +5,8 @@ To generate the Java classes corresponding to the Vulkan and Win32 API run `jext
 Make sure you set the following paths correctly in `jextract.ps1` to correspond to your environment:
 
 ```powershell
-$jdk = "C:\Program Files\Java\jdk-19"
+# Requires Early Access JDK 20 >= Build 27 (12/09/2022)
+$jdk = "C:\Program Files\Java\jdk-20"
 $libclang = "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\x64"
 $I = "C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0"
 ```
@@ -15,7 +16,8 @@ To build the project run `build.ps1` in Powershell.
 Make sure you set the following paths correctly in `build.ps1` to correspond to your environment:
 
 ```powershell
-$jdk = "C:\Program Files\Java\jdk-19"
+# Requires Early Access JDK 20 >= Build 27 (12/09/2022)
+$jdk = "C:\Program Files\Java\jdk-20"
 $glslc = "C:\Users\brcolow\dev\glslc.exe"
 ```
 
@@ -32,8 +34,5 @@ Setting `DEBUG` to true in `Vulkan.java` enables the `VK_LAYER_KHRONOS_validatio
 
 ## Future Work
 
-* Once [jdk-10872](https://github.com/openjdk/jdk/pull/10872) is merged, and an [early access release](https://jdk.java.net/20/) incorporating it is released we can
-make our code compatible with API changes in [JEP 434](https://openjdk.org/jeps/434). See [here](https://github.com/openjdk/jextract/commit/5e7d2327d124d1ce443aac8e515d67be4319574c) for
-hints on 19 -> 20 upgrade. Also see [here](https://github.com/openjdk/jextract/pull/94) for jextract PR.
 * It would be really interesting to see if we could use value/primitive types from [Valhalla](https://openjdk.org/projects/valhalla/) as vertex buffer objects (where such buffers would be made of Vector(2/3)f's which would be value/primitive types.
 * In order to progress from rendering a triangle, many new paths open up. Can we make a simple Vulkan memory allocator? What about a simple OBJ reader?

@@ -3,7 +3,7 @@ package com.brcolow.game;
 import com.brcolow.winapi.MSG;
 import com.brcolow.winapi.Windows_h;
 import java.lang.foreign.FunctionDescriptor;
-import java.lang.foreign.MemoryAddress;
+import java.lang.foreign.MemorySegment;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.brcolow.winapi.Windows_h.C_INT;
@@ -19,7 +19,7 @@ public class WindowProc {
             C_LONG_LONG
     );
 
-    static long WindowProcFunc(MemoryAddress hWnd, int message, long wParam, long lParam) {
+    static long WindowProcFunc(MemorySegment hWnd, int message, long wParam, long lParam) {
         // System.out.println("wParam: " + wParam);
         // System.out.println("lParam: " + lParam);
         System.out.println("message: " + message);
