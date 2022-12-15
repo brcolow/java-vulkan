@@ -385,24 +385,16 @@ public class Vulkan {
         int enabledExtensionCount = DEBUG ? 3 : 2;
 
         VkInstanceCreateInfo.enabledExtensionCount$set(pInstanceCreateInfo, enabledExtensionCount);
-        MemorySegment[] enabledExtensionNames = DEBUG ? new MemorySegment[]{
-                arena.allocateUtf8String("VK_KHR_surface"),
-                arena.allocateUtf8String("VK_KHR_win32_surface"),
+        MemorySegment pEnabledExtensionNames = allocatePtrArray(DEBUG ? new MemorySegment[]{
+                vulkan_h.VK_KHR_SURFACE_EXTENSION_NAME(),
+                vulkan_h.VK_KHR_WIN32_SURFACE_EXTENSION_NAME(),
                 vulkan_h.VK_EXT_DEBUG_UTILS_EXTENSION_NAME()}
                 : new MemorySegment[]{
-                arena.allocateUtf8String("VK_KHR_surface"),
-                arena.allocateUtf8String("VK_KHR_win32_surface")};
-        var pEnabledExtensionNames = arena.allocateArray(C_POINTER, enabledExtensionNames.length);
-        for (int i = 0; i < enabledExtensionNames.length; i++) {
-            pEnabledExtensionNames.set(C_POINTER, i * C_POINTER.byteSize(), enabledExtensionNames[i]);
-        }
+                vulkan_h.VK_KHR_SURFACE_EXTENSION_NAME(),
+                vulkan_h.VK_KHR_WIN32_SURFACE_EXTENSION_NAME()}, arena);
         VkInstanceCreateInfo.ppEnabledExtensionNames$set(pInstanceCreateInfo, pEnabledExtensionNames);
         if (DEBUG) {
-            MemorySegment[] enabledLayerNames = new MemorySegment[]{arena.allocateUtf8String("VK_LAYER_KHRONOS_validation")};
-            var pEnabledLayerNames = arena.allocateArray(C_POINTER, enabledLayerNames.length);
-            for (int i = 0; i < enabledLayerNames.length; i++) {
-                pEnabledLayerNames.set(C_POINTER, i * C_POINTER.byteSize(), enabledLayerNames[i]);
-            }
+            MemorySegment pEnabledLayerNames = allocatePtrArray(new MemorySegment[]{arena.allocateUtf8String("VK_LAYER_KHRONOS_validation")}, arena);
             VkInstanceCreateInfo.enabledLayerCount$set(pInstanceCreateInfo, 1);
             VkInstanceCreateInfo.ppEnabledLayerNames$set(pInstanceCreateInfo, pEnabledLayerNames);
         }
@@ -552,11 +544,7 @@ public class Vulkan {
         // Newer Vulkan implementations do not distinguish between instance and device specific validation layers,
         // but set it to maintain compat with old implementations.
         VkDeviceCreateInfo.enabledExtensionCount$set(deviceCreateInfo, 1);
-        MemorySegment[] enabledDeviceExtensionNames = new MemorySegment[]{vulkan_h.VK_KHR_SWAPCHAIN_EXTENSION_NAME()};
-        var pEnabledDeviceExtensionNames = arena.allocateArray(C_POINTER, enabledDeviceExtensionNames.length);
-        for (int i = 0; i < enabledDeviceExtensionNames.length; i++) {
-            pEnabledDeviceExtensionNames.set(C_POINTER, i * C_POINTER.byteSize(), enabledDeviceExtensionNames[i]);
-        }
+        MemorySegment pEnabledDeviceExtensionNames = allocatePtrArray(new MemorySegment[]{vulkan_h.VK_KHR_SWAPCHAIN_EXTENSION_NAME()}, arena);
         VkDeviceCreateInfo.ppEnabledExtensionNames$set(deviceCreateInfo, pEnabledDeviceExtensionNames);
 
         var pVkDevice = arena.allocate(C_POINTER);
@@ -569,6 +557,14 @@ public class Vulkan {
             System.out.println("vkCreateDevice succeeded");
         }
         return pVkDevice;
+    }
+
+    private static MemorySegment allocatePtrArray(MemorySegment[] array, Arena arena) {
+        var pEnabledDeviceExtensionNames = arena.allocateArray(C_POINTER, array.length);
+        for (int i = 0; i < array.length; i++) {
+            pEnabledDeviceExtensionNames.set(C_POINTER, i * C_POINTER.byteSize(), array[i]);
+        }
+        return pEnabledDeviceExtensionNames;
     }
 
     private static MemorySegment getPresentModeCount(Arena arena, MemorySegment vkSurface, QueueFamily graphicsQueueFamily) {
@@ -850,13 +846,13 @@ public class Vulkan {
                                                                    MemorySegment pRenderPass) {
         VKResult result;
         List<MemorySegment> pSwapChainFramebuffers = new ArrayList<>();
-        for (int i = 0; i < imageViews.size(); i++) {
+        for (MemorySegment imageView : imageViews) {
             var pVkFramebuffer = arena.allocate(C_POINTER);
             var pFramebufferCreateInfo = VkFramebufferCreateInfo.allocate(arena);
             VkFramebufferCreateInfo.sType$set(pFramebufferCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO());
             VkFramebufferCreateInfo.renderPass$set(pFramebufferCreateInfo, pRenderPass.get(C_POINTER, 0));
             VkFramebufferCreateInfo.attachmentCount$set(pFramebufferCreateInfo, 1);
-            VkFramebufferCreateInfo.pAttachments$set(pFramebufferCreateInfo, imageViews.get(i));
+            VkFramebufferCreateInfo.pAttachments$set(pFramebufferCreateInfo, imageView);
             VkFramebufferCreateInfo.width$set(pFramebufferCreateInfo, windowWidth);
             VkFramebufferCreateInfo.height$set(pFramebufferCreateInfo, windowHeight);
             VkFramebufferCreateInfo.layers$set(pFramebufferCreateInfo, 1);
@@ -1065,10 +1061,10 @@ public class Vulkan {
         return pShaderModule;
     }
 
-    public static void copy(MemorySegment addr, byte[] bytes) {
+    public static void copy(MemorySegment segment, byte[] bytes) {
         var heapSegment = MemorySegment.ofArray(bytes);
-        addr.copyFrom(heapSegment);
-        addr.set(JAVA_BYTE, bytes.length, (byte)0);
+        segment.copyFrom(heapSegment);
+        segment.set(JAVA_BYTE, bytes.length, (byte)0);
     }
 
     public static MemorySegment toCString(byte[] bytes, SegmentAllocator allocator) {
@@ -1078,7 +1074,6 @@ public class Vulkan {
     }
 
     private static class PhysicalDevice {
-        private final Arena arena;
         private final MemorySegment physicalDevice;
         private final MemorySegment physicalDeviceProperties;
         private final MemorySegment physicalDeviceFeatures;
@@ -1099,7 +1094,6 @@ public class Vulkan {
             Objects.requireNonNull(physicalDeviceQueueFamilyProperties);
             Objects.requireNonNull(ppSurface);
             System.out.println("numQueueFamilies: " + numQueueFamilies);
-            this.arena = arena;
             this.physicalDevice = physicalDevice;
             this.physicalDeviceProperties = physicalDeviceProperties;
             this.physicalDeviceFeatures = physicalDeviceFeatures;
@@ -1167,48 +1161,25 @@ public class Vulkan {
         }
     }
 
-    private static class QueueFamily {
-        private final MemorySegment physicalDevice;
-        private final MemorySegment queue;
-        private final int queueFamilyIndex;
-        private final int numQueues;
-        private final boolean supportsGraphicsOperations;
-        private final boolean supportsComputeOperations;
-        private final boolean supportsTransferOperations;
-        private final boolean supportsSparseMemoryManagementOperations;
-        private final boolean supportsPresentToSurface;
-        private final boolean supportsWin32Present;
-
-        private QueueFamily(MemorySegment physicalDevice, MemorySegment queue, int queueFamilyIndex, int numQueues,
-                            boolean supportsGraphicsOperations, boolean supportsComputeOperations,
-                            boolean supportsTransferOperations, boolean supportsSparseMemoryManagementOperations,
-                            boolean supportsPresentToSurface, boolean supportsWin32Present) {
-            this.physicalDevice = physicalDevice;
-            this.queue = queue;
-            this.queueFamilyIndex = queueFamilyIndex;
-            this.numQueues = numQueues;
-            this.supportsGraphicsOperations = supportsGraphicsOperations;
-            this.supportsComputeOperations = supportsComputeOperations;
-            this.supportsTransferOperations = supportsTransferOperations;
-            this.supportsSparseMemoryManagementOperations = supportsSparseMemoryManagementOperations;
-            this.supportsPresentToSurface = supportsPresentToSurface;
-            this.supportsWin32Present = supportsWin32Present;
-        }
+    private record QueueFamily(MemorySegment physicalDevice, MemorySegment queue, int queueFamilyIndex, int numQueues,
+                               boolean supportsGraphicsOperations, boolean supportsComputeOperations,
+                               boolean supportsTransferOperations, boolean supportsSparseMemoryManagementOperations,
+                               boolean supportsPresentToSurface, boolean supportsWin32Present) {
 
         @Override
-        public String toString() {
-            return "QueueFamily{" +
-                    "physicalDevice=" + physicalDevice +
-                    ", queue=" + queue +
-                    ", queueFamilyIndex=" + queueFamilyIndex +
-                    ", numQueues=" + numQueues +
-                    ", supportsGraphicsOperations=" + supportsGraphicsOperations +
-                    ", supportsComputeOperations=" + supportsComputeOperations +
-                    ", supportsTransferOperations=" + supportsTransferOperations +
-                    ", supportsSparseMemoryManagementOperations=" + supportsSparseMemoryManagementOperations +
-                    ", supportsPresentToSurface=" + supportsPresentToSurface +
-                    ", supportsWin32Present=" + supportsWin32Present +
-                    '}';
+            public String toString() {
+                return "QueueFamily{" +
+                        "physicalDevice=" + physicalDevice +
+                        ", queue=" + queue +
+                        ", queueFamilyIndex=" + queueFamilyIndex +
+                        ", numQueues=" + numQueues +
+                        ", supportsGraphicsOperations=" + supportsGraphicsOperations +
+                        ", supportsComputeOperations=" + supportsComputeOperations +
+                        ", supportsTransferOperations=" + supportsTransferOperations +
+                        ", supportsSparseMemoryManagementOperations=" + supportsSparseMemoryManagementOperations +
+                        ", supportsPresentToSurface=" + supportsPresentToSurface +
+                        ", supportsWin32Present=" + supportsWin32Present +
+                        '}';
+            }
         }
-    }
 }

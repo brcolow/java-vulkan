@@ -15,12 +15,8 @@ import static com.brcolow.vulkanapi.vulkan_h.C_INT;
 import static com.brcolow.vulkanapi.vulkan_h.C_POINTER;
 
 public class VulkanDebug {
-    public static final FunctionDescriptor DebugCallback$FUNC = FunctionDescriptor.of(C_INT,
-            C_INT,
-            C_INT,
-            C_POINTER,
-            C_POINTER
-    );
+    public static final FunctionDescriptor DebugCallback$FUNC = FunctionDescriptor.of(
+            C_INT, C_INT, C_INT, C_POINTER, C_POINTER);
 
     public static int DebugCallbackFunc(int messageSeverity, int messageTypes, MemorySegment pCallbackData, MemorySegment pUserData) {
         VkDebugUtilsMessageSeverityFlagBitsEXT severity = VkDebugUtilsMessageSeverityFlagBitsEXT(messageSeverity);

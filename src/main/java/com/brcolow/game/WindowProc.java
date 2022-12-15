@@ -1,6 +1,5 @@
 package com.brcolow.game;
 
-import com.brcolow.winapi.MSG;
 import com.brcolow.winapi.Windows_h;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.MemorySegment;
@@ -12,12 +11,8 @@ import static com.brcolow.winapi.Windows_h.C_POINTER;
 
 public class WindowProc {
     private static final AtomicBoolean exitRequested = new AtomicBoolean(false);
-    public static final FunctionDescriptor WindowProc$FUNC = FunctionDescriptor.of(C_LONG_LONG,
-            C_POINTER,
-            C_INT,
-            C_LONG_LONG,
-            C_LONG_LONG
-    );
+    public static final FunctionDescriptor WindowProc$FUNC = FunctionDescriptor.of(
+            C_LONG_LONG, C_POINTER, C_INT, C_LONG_LONG, C_LONG_LONG);
 
     static long WindowProcFunc(MemorySegment hWnd, int message, long wParam, long lParam) {
         // System.out.println("wParam: " + wParam);

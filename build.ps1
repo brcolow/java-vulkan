@@ -12,8 +12,6 @@ rm vert.spv
 rm frag.spv
 javac `
 src\main\java\com\brcolow\game\VkDebugUtilsMessageSeverityFlagBitsEXT.java `
-src\main\java\com\brcolow\game\VkDebugUtilsMessageTypeFlagBitsEXT.java `
-src\main\java\com\brcolow\game\VkPhysicalDeviceType.java `
 src\main\java\com\brcolow\game\VkResult.java `
 src\main\java\com\brcolow\game\VkStructureType.java `
 src\main\java\com\brcolow\game\VulkanDebug.java `
