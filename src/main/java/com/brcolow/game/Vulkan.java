@@ -4,6 +4,7 @@ import com.brcolow.vulkanapi.PFN_vkCreateDebugUtilsMessengerEXT;
 import com.brcolow.vulkanapi.VkApplicationInfo;
 import com.brcolow.vulkanapi.VkAttachmentDescription;
 import com.brcolow.vulkanapi.VkAttachmentReference;
+import com.brcolow.vulkanapi.VkBufferCreateInfo;
 import com.brcolow.vulkanapi.VkClearValue;
 import com.brcolow.vulkanapi.VkCommandBufferAllocateInfo;
 import com.brcolow.vulkanapi.VkCommandBufferBeginInfo;
@@ -20,6 +21,8 @@ import com.brcolow.vulkanapi.VkGraphicsPipelineCreateInfo;
 import com.brcolow.vulkanapi.VkImageSubresourceRange;
 import com.brcolow.vulkanapi.VkImageViewCreateInfo;
 import com.brcolow.vulkanapi.VkInstanceCreateInfo;
+import com.brcolow.vulkanapi.VkMemoryAllocateInfo;
+import com.brcolow.vulkanapi.VkMemoryRequirements;
 import com.brcolow.vulkanapi.VkOffset2D;
 import com.brcolow.vulkanapi.VkPhysicalDeviceFeatures;
 import com.brcolow.vulkanapi.VkPhysicalDeviceMemoryProperties;
@@ -45,6 +48,8 @@ import com.brcolow.vulkanapi.VkSubpassDependency;
 import com.brcolow.vulkanapi.VkSubpassDescription;
 import com.brcolow.vulkanapi.VkSurfaceCapabilitiesKHR;
 import com.brcolow.vulkanapi.VkSwapchainCreateInfoKHR;
+import com.brcolow.vulkanapi.VkVertexInputAttributeDescription;
+import com.brcolow.vulkanapi.VkVertexInputBindingDescription;
 import com.brcolow.vulkanapi.VkViewport;
 import com.brcolow.vulkanapi.VkWin32SurfaceCreateInfoKHR;
 import com.brcolow.vulkanapi.vulkan_h;
@@ -53,6 +58,8 @@ import com.brcolow.winapi.RECT;
 import com.brcolow.winapi.WNDCLASSEXW;
 import com.brcolow.winapi.Windows_h;
 
+import java.awt.image.BufferedImage;
+import java.awt.image.DataBuffer;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.Linker;
@@ -67,9 +74,9 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 import static com.brcolow.game.VKResult.VK_ERROR_LAYER_NOT_PRESENT;
 import static com.brcolow.game.VKResult.VK_ERROR_OUT_OF_DATE_KHR;
@@ -79,6 +86,7 @@ import static com.brcolow.vulkanapi.vulkan_h.C_CHAR;
 import static com.brcolow.vulkanapi.vulkan_h.C_DOUBLE;
 import static com.brcolow.vulkanapi.vulkan_h.C_FLOAT;
 import static com.brcolow.vulkanapi.vulkan_h.C_INT;
+import static com.brcolow.vulkanapi.vulkan_h.C_LONG;
 import static com.brcolow.vulkanapi.vulkan_h.C_POINTER;
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
@@ -90,6 +98,19 @@ public class Vulkan {
         System.loadLibrary("user32");
         System.loadLibrary("kernel32");
         System.loadLibrary("vulkan-1");
+
+        try {
+            BufferedImage img = javax.imageio.ImageIO.read(Vulkan.class.getResourceAsStream("wood.png"));
+            System.out.println("transfer type: " + img.getData().getTransferType());
+            if (img.getData().getTransferType() == DataBuffer.TYPE_BYTE) {
+                byte[] rgbaPixels = new byte[img.getWidth() * img.getHeight() * img.getData().getNumDataElements()];
+                img.getData().getDataElements(0, 0, img.getWidth(), img.getHeight(), rgbaPixels);
+                System.out.println("rgbaPixels size: " + rgbaPixels.length);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
         try (var arena = Arena.openConfined()) {
             var pVkInstance = createVkInstance(arena);
             var vkInstance = pVkInstance.get(C_POINTER, 0);
@@ -115,20 +136,29 @@ public class Vulkan {
 
             var pDeviceQueueCreateInfo = VkDeviceQueueCreateInfo.allocate(arena);
             VkDeviceQueueCreateInfo.sType$set(pDeviceQueueCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO());
-            Optional<QueueFamily> graphicsQueueFamilyOpt = physicalDevices.stream()
-                    .filter(physicalDevice -> physicalDevice.getDeviceType() == vulkan_h.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU())
-                    .flatMap(physicalDevice -> physicalDevice.queueFamilies.stream())
-                    .filter(queueFamily -> queueFamily.supportsGraphicsOperations)
-                    .filter(queueFamily -> queueFamily.supportsPresentToSurface)
-                    .findFirst();
-            if (graphicsQueueFamilyOpt.isEmpty()) {
+            PhysicalDevice physicalDevice = null;
+            QueueFamily graphicsQueueFamily = null;
+            boolean foundQueueFamily = false;
+            for (Iterator<PhysicalDevice> iterator = physicalDevices.iterator(); iterator.hasNext() && !foundQueueFamily; ) {
+                PhysicalDevice currDevice = iterator.next();
+                if (currDevice.getDeviceType() == vulkan_h.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU()) {
+                    for (QueueFamily queueFamily : currDevice.queueFamilies) {
+                        if (queueFamily.supportsGraphicsOperations && queueFamily.supportsPresentToSurface) {
+                            graphicsQueueFamily = queueFamily;
+                            physicalDevice = currDevice;
+                            foundQueueFamily = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (graphicsQueueFamily == null) {
                 System.out.println("Could not find a discrete GPU physical device with a graphics queue family!");
                 System.exit(-1);
             } else {
                 System.out.println("Found discrete GPU physical device with a graphics family queue");
             }
 
-            QueueFamily graphicsQueueFamily = graphicsQueueFamilyOpt.get();
             System.out.println("Using queue family: " + graphicsQueueFamily);
             VkDeviceQueueCreateInfo.queueFamilyIndex$set(pDeviceQueueCreateInfo, graphicsQueueFamily.queueFamilyIndex);
             VkDeviceQueueCreateInfo.queueCount$set(pDeviceQueueCreateInfo, 1);
@@ -194,12 +224,38 @@ public class Vulkan {
             VkPipelineShaderStageCreateInfo.module$set(pFragShaderStageInfo, pFragShaderModule.get(C_POINTER, 0));
             VkPipelineShaderStageCreateInfo.pName$set(pFragShaderStageInfo, arena.allocateUtf8String("main"));
 
+            var pVertexInputBindingDescription = VkVertexInputBindingDescription.allocate(arena);
+            VkVertexInputBindingDescription.binding$set(pVertexInputBindingDescription, 0);
+            float[] vertices = new float[]{
+                    0.0f, -0.5f, 0.0f, // Vertex 0, Position
+                    1.0f, 0.0f, 0.0f,  // Vertex 0, Color (red)
+                    0.5f, 0.5f, 0.0f,  // Vertex 1, Position
+                    0.0f, 1.0f, 0.0f,  // Vertex 1, Color (green)
+                    -0.5f, 0.5f, 0.0f, // Vertex 2, Position
+                    0.0f, 1.0f, 1.0f,  // Vertex 2, Color (cyan)
+            };
+            VkVertexInputBindingDescription.stride$set(pVertexInputBindingDescription, 24);
+            VkVertexInputBindingDescription.inputRate$set(pVertexInputBindingDescription, vulkan_h.VK_VERTEX_INPUT_RATE_VERTEX());
+
+            var pVertexInputAttributeDescriptions = VkVertexInputAttributeDescription.allocateArray(2, arena);
+
+            // Position description
+            VkVertexInputAttributeDescription.binding$set(pVertexInputAttributeDescriptions, 0, 0);
+            VkVertexInputAttributeDescription.location$set(pVertexInputAttributeDescriptions, 0, 0);
+            VkVertexInputAttributeDescription.format$set(pVertexInputAttributeDescriptions, 0, vulkan_h.VK_FORMAT_R32G32B32_SFLOAT());
+            VkVertexInputAttributeDescription.offset$set(pVertexInputAttributeDescriptions, 0, 0);
+            // Color description
+            VkVertexInputAttributeDescription.binding$set(pVertexInputAttributeDescriptions, 1, 0);
+            VkVertexInputAttributeDescription.location$set(pVertexInputAttributeDescriptions, 1, 1);
+            VkVertexInputAttributeDescription.format$set(pVertexInputAttributeDescriptions, 1, vulkan_h.VK_FORMAT_R32G32B32_SFLOAT());
+            VkVertexInputAttributeDescription.offset$set(pVertexInputAttributeDescriptions, 1, 12);
+
             var pVertexInputStateInfo = VkPipelineVertexInputStateCreateInfo.allocate(arena);
             VkPipelineVertexInputStateCreateInfo.sType$set(pVertexInputStateInfo, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO());
-            VkPipelineVertexInputStateCreateInfo.vertexBindingDescriptionCount$get(pVertexInputStateInfo, 0);
-            VkPipelineVertexInputStateCreateInfo.pVertexBindingDescriptions$set(pVertexInputStateInfo, MemorySegment.NULL);
-            VkPipelineVertexInputStateCreateInfo.vertexAttributeDescriptionCount$set(pVertexInputStateInfo, 0);
-            VkPipelineVertexInputStateCreateInfo.pVertexAttributeDescriptions$set(pVertexInputStateInfo, MemorySegment.NULL);
+            VkPipelineVertexInputStateCreateInfo.vertexBindingDescriptionCount$set(pVertexInputStateInfo, 1);
+            VkPipelineVertexInputStateCreateInfo.pVertexBindingDescriptions$set(pVertexInputStateInfo, pVertexInputBindingDescription);
+            VkPipelineVertexInputStateCreateInfo.vertexAttributeDescriptionCount$set(pVertexInputStateInfo, 2);
+            VkPipelineVertexInputStateCreateInfo.pVertexAttributeDescriptions$set(pVertexInputStateInfo, pVertexInputAttributeDescriptions);
 
             var pRenderPass = createRenderPass(arena, swapChainImageFormat, vkDevice);
 
@@ -211,10 +267,62 @@ public class Vulkan {
             System.out.println("Created " + pSwapChainFramebuffers.size() + " frame buffers.");
 
             var pVkCommandPool = createCommandPool(arena, graphicsQueueFamily, vkDevice);
+
+            // createVertexBuffer
+            var pVertexBufferCreateInfo = VkBufferCreateInfo.allocate(arena);
+            VkBufferCreateInfo.sType$set(pVertexBufferCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO());
+            VkBufferCreateInfo.size$set(pVertexBufferCreateInfo, vertices.length * 4);
+            VkBufferCreateInfo.usage$set(pVertexBufferCreateInfo, vulkan_h.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT());
+            VkBufferCreateInfo.sharingMode$set(pVertexBufferCreateInfo, vulkan_h.VK_SHARING_MODE_EXCLUSIVE());
+            var pVertexBuffer = arena.allocate(C_POINTER);
+
+            result = VkResult(vulkan_h.vkCreateBuffer(vkDevice, pVertexBufferCreateInfo, MemorySegment.NULL, pVertexBuffer));
+            if (result != VK_SUCCESS) {
+                System.out.println("vkCreateBuffer failed for vertex buffer: " + result);
+                System.exit(-1);
+            }
+
+            var pVertexBufferMemoryRequirements = VkMemoryRequirements.allocate(arena);
+            vulkan_h.vkGetBufferMemoryRequirements(vkDevice, pVertexBuffer.get(C_POINTER, 0), pVertexBufferMemoryRequirements);
+
+            var pMemoryAllocateInfo = VkMemoryAllocateInfo.allocate(arena);
+            VkMemoryAllocateInfo.sType$set(pMemoryAllocateInfo, vulkan_h.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO());
+            VkMemoryAllocateInfo.allocationSize$set(pMemoryAllocateInfo, VkMemoryRequirements.size$get(pVertexBufferMemoryRequirements));
+            System.out.println("memory requirements memory type bits: " + VkMemoryRequirements.memoryTypeBits$get(pVertexBufferMemoryRequirements));
+            VkMemoryAllocateInfo.memoryTypeIndex$set(pMemoryAllocateInfo, physicalDevice.findMemoryType(
+                    VkMemoryRequirements.memoryTypeBits$get(pVertexBufferMemoryRequirements),
+                    vulkan_h.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT() | vulkan_h.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT()));
+
+            var pVertexBufferMemory = arena.allocate(C_POINTER);
+            result = VkResult(vulkan_h.vkAllocateMemory(vkDevice, pMemoryAllocateInfo, MemorySegment.NULL, pVertexBufferMemory));
+            if (result != VK_SUCCESS) {
+                System.out.println("vkAllocateMemory failed for vertex buffer: " + result);
+                System.exit(-1);
+            }
+
+            result = VkResult(vulkan_h.vkBindBufferMemory(vkDevice, pVertexBuffer.get(C_POINTER, 0), pVertexBufferMemory.get(C_POINTER, 0), 0));
+            if (result != VK_SUCCESS) {
+                System.out.println("vkBindBufferMemory failed for vertex buffer: " + result);
+                System.exit(-1);
+            }
+
+            var pData = arena.allocate(C_POINTER);
+            result = VkResult(vulkan_h.vkMapMemory(vkDevice, pVertexBufferMemory.get(C_POINTER, 0), 0, vertices.length * 4, 0, pData));
+            if (result != VK_SUCCESS) {
+                System.out.println("vkMapMemory failed for vertex buffer: " + result);
+                System.exit(-1);
+            }
+
+            for (int i = 0; i < vertices.length; i++) {
+                pData.get(C_POINTER, 0).setAtIndex(C_FLOAT, i, vertices[i]);
+            }
+
+            vulkan_h.vkUnmapMemory(vkDevice, pVertexBufferMemory.get(C_POINTER, 0));
+
             var pCommandBuffers = createCommandBuffers(arena, vkDevice, pSwapChainFramebuffers, pVkCommandPool);
 
             createRenderPassesForSwapchains(arena, windowWidth, windowHeight, pRenderPass, pVkPipeline,
-                    pSwapChainFramebuffers, pCommandBuffers);
+                    pSwapChainFramebuffers, pCommandBuffers, pVertexBuffer, vertices);
 
             var pSemaphores = createSemaphores(arena, vkDevice);
 
@@ -263,6 +371,8 @@ public class Vulkan {
             vulkan_h.vkDestroySemaphore(vkDevice, pSemaphores.get(C_POINTER, 0), MemorySegment.NULL);
             vulkan_h.vkFreeCommandBuffers(vkDevice, pVkCommandPool.get(C_POINTER, 0),
                     pSwapChainFramebuffers.size(), pCommandBuffers);
+            vulkan_h.vkDestroyBuffer(vkDevice, pVertexBuffer.get(C_POINTER, 0), MemorySegment.NULL);
+            vulkan_h.vkFreeMemory(vkDevice, pVertexBufferMemory.get(C_POINTER, 0), MemorySegment.NULL);
             vulkan_h.vkDestroySwapchainKHR(vkDevice, swapChain, MemorySegment.NULL);
             vulkan_h.vkDestroySurfaceKHR(vkInstance, vkSurface, MemorySegment.NULL);
             vulkan_h.vkDestroyDevice(vkDevice, MemorySegment.NULL);
@@ -297,7 +407,7 @@ public class Vulkan {
         var result = VkResult(vulkan_h.vkEnumerateInstanceExtensionProperties(
                 MemorySegment.NULL, pExtensionCount, MemorySegment.NULL));
         if (result != VK_SUCCESS) {
-            System.out.println("vkEnumerateInstanceExtensionProperties failed");
+            System.out.println("vkEnumerateInstanceExtensionProperties failed: " + result);
             System.exit(-1);
         }
 
@@ -305,7 +415,7 @@ public class Vulkan {
         List<String> extensions = new ArrayList<>(pExtensionCount.get(C_INT, 0));
         result = VkResult(vulkan_h.vkEnumerateInstanceExtensionProperties(MemorySegment.NULL, pExtensionCount, availableExtensions));
         if (result != VK_SUCCESS) {
-            System.out.println("vkEnumerateInstanceExtensionProperties failed");
+            System.out.println("vkEnumerateInstanceExtensionProperties failed: " + result);
             System.exit(-1);
         }
         for (int i = 0; i < pExtensionCount.get(C_INT, 0); i++) {
@@ -498,15 +608,15 @@ public class Vulkan {
 
         System.out.println("physical device count: " + numPhysicalDevices);
 
-        List<PhysicalDevice> physicalDevices = new ArrayList<>();
+        List<PhysicalDevice> physicalDevices = new ArrayList<>(numPhysicalDevices);
         for (int i = 0; i < numPhysicalDevices; i++) {
             var properties = VkPhysicalDeviceProperties.allocate(arena);
             var physicalDevice = pPhysicalDevices.getAtIndex(C_POINTER, i);
             vulkan_h.vkGetPhysicalDeviceProperties(physicalDevice, properties);
             var features = VkPhysicalDeviceFeatures.allocate(arena);
             vulkan_h.vkGetPhysicalDeviceFeatures(physicalDevice, features);
-            var memoryProperties = VkPhysicalDeviceMemoryProperties.allocate(arena);
-            vulkan_h.vkGetPhysicalDeviceMemoryProperties(physicalDevice, memoryProperties);
+            var pMemoryProperties = VkPhysicalDeviceMemoryProperties.allocate(arena);
+            vulkan_h.vkGetPhysicalDeviceMemoryProperties(physicalDevice, pMemoryProperties);
 
             // See how many properties the queue family of the current physical device has, then use that number to
             // get them.
@@ -519,7 +629,7 @@ public class Vulkan {
             vulkan_h.vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice,
                     pQueueFamilyPropertyCount, pQueueFamilyProperties);
 
-            physicalDevices.add(new PhysicalDevice(arena, physicalDevice, properties, features, memoryProperties,
+            physicalDevices.add(new PhysicalDevice(arena, physicalDevice, properties, features, pMemoryProperties,
                     familyPropertyCount, pQueueFamilyProperties, pSurface));
         }
 
@@ -545,7 +655,7 @@ public class Vulkan {
         VkDeviceCreateInfo.ppEnabledExtensionNames$set(deviceCreateInfo, pEnabledDeviceExtensionNames);
 
         var pVkDevice = arena.allocate(C_POINTER);
-        result = VkResult(vulkan_h.vkCreateDevice(graphicsQueueFamily.physicalDevice, deviceCreateInfo,
+        result = VkResult(vulkan_h.vkCreateDevice(graphicsQueueFamily.physicalDevicePtr, deviceCreateInfo,
                 MemorySegment.NULL, pVkDevice));
         if (result != VK_SUCCESS) {
             System.out.println("vkCreateDevice failed: " + result);
@@ -557,17 +667,17 @@ public class Vulkan {
     }
 
     private static MemorySegment allocatePtrArray(MemorySegment[] array, Arena arena) {
-        var pEnabledDeviceExtensionNames = arena.allocateArray(C_POINTER, array.length);
+        var pArray = arena.allocateArray(C_POINTER, array.length);
         for (int i = 0; i < array.length; i++) {
-            pEnabledDeviceExtensionNames.set(C_POINTER, i * C_POINTER.byteSize(), array[i]);
+            pArray.set(C_POINTER, i * C_POINTER.byteSize(), array[i]);
         }
-        return pEnabledDeviceExtensionNames;
+        return pArray;
     }
 
     private static MemorySegment getPresentModeCount(Arena arena, MemorySegment vkSurface, QueueFamily graphicsQueueFamily) {
         VKResult result;
         MemorySegment pPresentModeCount = arena.allocate(C_INT, -1);
-        result = VkResult(vulkan_h.vkGetPhysicalDeviceSurfacePresentModesKHR(graphicsQueueFamily.physicalDevice,
+        result = VkResult(vulkan_h.vkGetPhysicalDeviceSurfacePresentModesKHR(graphicsQueueFamily.physicalDevicePtr,
                 vkSurface, pPresentModeCount, MemorySegment.NULL));
         if (result != VK_SUCCESS) {
             System.out.println("vkGetPhysicalDeviceSurfacePresentModesKHR failed: " + result);
@@ -581,7 +691,7 @@ public class Vulkan {
     private static MemorySegment getSurfaceCapabilities(Arena arena, MemorySegment pSurface, QueueFamily graphicsQueueFamily) {
         VKResult result;
         var surfaceCapabilities = VkSurfaceCapabilitiesKHR.allocate(arena);
-        result = VkResult(vulkan_h.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(graphicsQueueFamily.physicalDevice,
+        result = VkResult(vulkan_h.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(graphicsQueueFamily.physicalDevicePtr,
                 pSurface.get(C_POINTER, 0), surfaceCapabilities));
         if (result != VK_SUCCESS) {
             System.out.println("vkGetPhysicalDeviceSurfaceCapabilitiesKHR failed: " + result);
@@ -908,7 +1018,8 @@ public class Vulkan {
 
     private static void createRenderPassesForSwapchains(Arena arena, int windowWidth, int windowHeight,
                                                         MemorySegment pRenderPass, MemorySegment pVkPipeline,
-                                                        List<MemorySegment> pSwapChainFramebuffers, MemorySegment pCommandBuffers) {
+                                                        List<MemorySegment> pSwapChainFramebuffers, MemorySegment pCommandBuffers,
+                                                        MemorySegment pVertexBuffer, float[] vertices) {
         VKResult result;
         for (int i = 0; i < pSwapChainFramebuffers.size(); i++) {
             System.out.println("Frame buffer i = " + i);
@@ -946,7 +1057,15 @@ public class Vulkan {
             vulkan_h.vkCmdBeginRenderPass(vkCommandBuffer, pRenderPassBeginInfo, vulkan_h.VK_SUBPASS_CONTENTS_INLINE());
             vulkan_h.vkCmdBindPipeline(vkCommandBuffer,
                     vulkan_h.VK_PIPELINE_BIND_POINT_GRAPHICS(), pVkPipeline.get(C_POINTER, 0));
-            vulkan_h.vkCmdDraw(vkCommandBuffer, 3, 1, 0, 0);
+
+            var pBuffers = arena.allocateArray(C_POINTER, 1);
+            pBuffers.setAtIndex(C_POINTER, 0, pVertexBuffer);
+            var pOffsets = arena.allocateArray(C_POINTER, 1);
+            pOffsets.setAtIndex(C_LONG, 0, 0);
+            vulkan_h.vkCmdBindVertexBuffers(vkCommandBuffer, 0, 1, pVertexBuffer, pOffsets);
+            // vulkan_h.vkCmdBindVertexBuffers(vkCommandBuffer, 0, 1, pBuffers.get(C_POINTER, 0), pOffsets);
+            System.out.println("num vertices: " + vertices.length / 6);
+            vulkan_h.vkCmdDraw(vkCommandBuffer, vertices.length / 6, 1, 0, 0);
             vulkan_h.vkCmdEndRenderPass(vkCommandBuffer);
 
             result = VkResult(vulkan_h.vkEndCommandBuffer(vkCommandBuffer));
@@ -1065,6 +1184,7 @@ public class Vulkan {
     }
 
     private static class PhysicalDevice {
+        private final Arena arena;
         private final MemorySegment physicalDevice;
         private final MemorySegment physicalDeviceProperties;
         private final MemorySegment physicalDeviceFeatures;
@@ -1085,6 +1205,7 @@ public class Vulkan {
             Objects.requireNonNull(physicalDeviceQueueFamilyProperties);
             Objects.requireNonNull(ppSurface);
             System.out.println("numQueueFamilies: " + numQueueFamilies);
+            this.arena = arena;
             this.physicalDevice = physicalDevice;
             this.physicalDeviceProperties = physicalDeviceProperties;
             this.physicalDeviceFeatures = physicalDeviceFeatures;
@@ -1133,6 +1254,21 @@ public class Vulkan {
             queueFamilies.forEach(System.out::println);
         }
 
+        public int findMemoryType(int typeFilter, int memoryPropertyFlags) {
+            // System.out.println("findMemoryType: typeFilter = " + typeFilter + ", memoryPropertyFlags = " + memoryPropertyFlags);
+            int memoryTypeCount = VkPhysicalDeviceMemoryProperties.memoryTypeCount$get(physicalDeviceMemoryProperties);
+            // System.out.println("memoryTypeCount: " + memoryTypeCount);
+            for (int i = 0; i < VkPhysicalDeviceMemoryProperties.memoryTypeCount$get(physicalDeviceMemoryProperties); i++) {
+                MemorySegment memoryTypesArr = VkPhysicalDeviceMemoryProperties.memoryTypes$slice(physicalDeviceMemoryProperties);
+                if ((typeFilter & (1 << i)) != 0 && (memoryTypesArr.getAtIndex(C_INT, i) & memoryPropertyFlags) == memoryPropertyFlags) {
+                    System.out.println("Found memory type: " + i);
+                    return i;
+                }
+            }
+            System.out.println("failed to find suitable memory type!");
+            return -1;
+        }
+
         public void printInfo() {
             System.out.println("apiVersion: " + VkPhysicalDeviceProperties.apiVersion$get(physicalDeviceProperties));
             System.out.println("driverVersion: " + VkPhysicalDeviceProperties.driverVersion$get(physicalDeviceProperties));
@@ -1151,7 +1287,7 @@ public class Vulkan {
         }
     }
 
-    private record QueueFamily(MemorySegment physicalDevice, MemorySegment queue, int queueFamilyIndex, int numQueues,
+    private record QueueFamily(MemorySegment physicalDevicePtr, MemorySegment queue, int queueFamilyIndex, int numQueues,
                                boolean supportsGraphicsOperations, boolean supportsComputeOperations,
                                boolean supportsTransferOperations, boolean supportsSparseMemoryManagementOperations,
                                boolean supportsPresentToSurface, boolean supportsWin32Present) {
@@ -1159,7 +1295,6 @@ public class Vulkan {
         @Override
             public String toString() {
                 return "QueueFamily{" +
-                        "physicalDevice=" + physicalDevice +
                         ", queue=" + queue +
                         ", queueFamilyIndex=" + queueFamilyIndex +
                         ", numQueues=" + numQueues +

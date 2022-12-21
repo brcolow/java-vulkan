@@ -6,10 +6,9 @@ $glslc = "C:\Users\brcolow\dev\glslc.exe"
 New-Alias -Name glslc -Value "$glslc" -Force
 glslc src\main\shader\triangle.vert -o vert.spv
 glslc src\main\shader\triangle.frag -o frag.spv
-cp vert.spv .\target\classes\com\brcolow\game\vert.spv
-cp frag.spv .\target\classes\com\brcolow\game\frag.spv
-rm vert.spv
-rm frag.spv
+cp src\main\img\*.png .\target\classes\com\brcolow\game
+cp *.spv .\target\classes\com\brcolow\game
+rm *.spv
 javac `
 src\main\java\com\brcolow\game\VkDebugUtilsMessageSeverityFlagBitsEXT.java `
 src\main\java\com\brcolow\game\VkResult.java `
