@@ -4,6 +4,7 @@ import com.brcolow.vulkanapi.PFN_vkCreateDebugUtilsMessengerEXT;
 import com.brcolow.vulkanapi.VkApplicationInfo;
 import com.brcolow.vulkanapi.VkAttachmentDescription;
 import com.brcolow.vulkanapi.VkAttachmentReference;
+import com.brcolow.vulkanapi.VkBufferCopy;
 import com.brcolow.vulkanapi.VkBufferCreateInfo;
 import com.brcolow.vulkanapi.VkClearValue;
 import com.brcolow.vulkanapi.VkCommandBufferAllocateInfo;
@@ -88,7 +89,9 @@ import static com.brcolow.vulkanapi.vulkan_h.C_FLOAT;
 import static com.brcolow.vulkanapi.vulkan_h.C_INT;
 import static com.brcolow.vulkanapi.vulkan_h.C_LONG;
 import static com.brcolow.vulkanapi.vulkan_h.C_POINTER;
+import static com.brcolow.vulkanapi.vulkan_h.C_SHORT;
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
+import static java.lang.foreign.ValueLayout.JAVA_CHAR;
 
 public class Vulkan {
     private static final boolean DEBUG = true;
@@ -98,18 +101,6 @@ public class Vulkan {
         System.loadLibrary("user32");
         System.loadLibrary("kernel32");
         System.loadLibrary("vulkan-1");
-
-        try {
-            BufferedImage img = javax.imageio.ImageIO.read(Vulkan.class.getResourceAsStream("wood.png"));
-            System.out.println("transfer type: " + img.getData().getTransferType());
-            if (img.getData().getTransferType() == DataBuffer.TYPE_BYTE) {
-                byte[] rgbaPixels = new byte[img.getWidth() * img.getHeight() * img.getData().getNumDataElements()];
-                img.getData().getDataElements(0, 0, img.getWidth(), img.getHeight(), rgbaPixels);
-                System.out.println("rgbaPixels size: " + rgbaPixels.length);
-            }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
 
         try (var arena = Arena.openConfined()) {
             var pVkInstance = createVkInstance(arena);
@@ -226,15 +217,22 @@ public class Vulkan {
 
             var pVertexInputBindingDescription = VkVertexInputBindingDescription.allocate(arena);
             VkVertexInputBindingDescription.binding$set(pVertexInputBindingDescription, 0);
+            // Square with colors at the vertices.
             float[] vertices = new float[]{
-                    0.0f, -0.5f, 0.0f, // Vertex 0, Position
-                    1.0f, 0.0f, 0.0f,  // Vertex 0, Color (red)
-                    0.5f, 0.5f, 0.0f,  // Vertex 1, Position
-                    0.0f, 1.0f, 0.0f,  // Vertex 1, Color (green)
-                    -0.5f, 0.5f, 0.0f, // Vertex 2, Position
-                    0.0f, 1.0f, 1.0f,  // Vertex 2, Color (cyan)
+                    -0.5f, -0.5f, 0.0f, // Vertex 0, Position
+                    1.0f, 0.0f, 0.0f, // Vertex 0, Color (red)
+                    0.5f, -0.5f, 0.0f, // Vertex 1, Position
+                    0.0f, 1.0f, 0.0f, // Vertex 1, Color (green)
+                    0.5f, 0.5f, 0.0f, // Vertex 2, Position
+                    0.0f, 1.0f, 1.0f, // Vertex 2, Color (cyan)
+                    -0.5f, 0.5f, 0.0f, // Vertex 3, Position
+                    1.0f, 1.0f, 1.0f, // Vertex 3, Color (white)
             };
-            VkVertexInputBindingDescription.stride$set(pVertexInputBindingDescription, 24);
+
+            char[] indices = new char[]{
+                    0, 1, 2, 2, 3, 0
+            };
+            VkVertexInputBindingDescription.stride$set(pVertexInputBindingDescription, 24); // pos + color = 12 + 12 bytes
             VkVertexInputBindingDescription.inputRate$set(pVertexInputBindingDescription, vulkan_h.VK_VERTEX_INPUT_RATE_VERTEX());
 
             var pVertexInputAttributeDescriptions = VkVertexInputAttributeDescription.allocateArray(2, arena);
@@ -248,7 +246,7 @@ public class Vulkan {
             VkVertexInputAttributeDescription.binding$set(pVertexInputAttributeDescriptions, 1, 0);
             VkVertexInputAttributeDescription.location$set(pVertexInputAttributeDescriptions, 1, 1);
             VkVertexInputAttributeDescription.format$set(pVertexInputAttributeDescriptions, 1, vulkan_h.VK_FORMAT_R32G32B32_SFLOAT());
-            VkVertexInputAttributeDescription.offset$set(pVertexInputAttributeDescriptions, 1, 12);
+            VkVertexInputAttributeDescription.offset$set(pVertexInputAttributeDescriptions, 1, 12); // first 12 is pos
 
             var pVertexInputStateInfo = VkPipelineVertexInputStateCreateInfo.allocate(arena);
             VkPipelineVertexInputStateCreateInfo.sType$set(pVertexInputStateInfo, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO());
@@ -268,61 +266,13 @@ public class Vulkan {
 
             var pVkCommandPool = createCommandPool(arena, graphicsQueueFamily, vkDevice);
 
-            // createVertexBuffer
-            var pVertexBufferCreateInfo = VkBufferCreateInfo.allocate(arena);
-            VkBufferCreateInfo.sType$set(pVertexBufferCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO());
-            VkBufferCreateInfo.size$set(pVertexBufferCreateInfo, vertices.length * 4);
-            VkBufferCreateInfo.usage$set(pVertexBufferCreateInfo, vulkan_h.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT());
-            VkBufferCreateInfo.sharingMode$set(pVertexBufferCreateInfo, vulkan_h.VK_SHARING_MODE_EXCLUSIVE());
-            var pVertexBuffer = arena.allocate(C_POINTER);
-
-            result = VkResult(vulkan_h.vkCreateBuffer(vkDevice, pVertexBufferCreateInfo, MemorySegment.NULL, pVertexBuffer));
-            if (result != VK_SUCCESS) {
-                System.out.println("vkCreateBuffer failed for vertex buffer: " + result);
-                System.exit(-1);
-            }
-
-            var pVertexBufferMemoryRequirements = VkMemoryRequirements.allocate(arena);
-            vulkan_h.vkGetBufferMemoryRequirements(vkDevice, pVertexBuffer.get(C_POINTER, 0), pVertexBufferMemoryRequirements);
-
-            var pMemoryAllocateInfo = VkMemoryAllocateInfo.allocate(arena);
-            VkMemoryAllocateInfo.sType$set(pMemoryAllocateInfo, vulkan_h.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO());
-            VkMemoryAllocateInfo.allocationSize$set(pMemoryAllocateInfo, VkMemoryRequirements.size$get(pVertexBufferMemoryRequirements));
-            System.out.println("memory requirements memory type bits: " + VkMemoryRequirements.memoryTypeBits$get(pVertexBufferMemoryRequirements));
-            VkMemoryAllocateInfo.memoryTypeIndex$set(pMemoryAllocateInfo, physicalDevice.findMemoryType(
-                    VkMemoryRequirements.memoryTypeBits$get(pVertexBufferMemoryRequirements),
-                    vulkan_h.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT() | vulkan_h.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT()));
-
-            var pVertexBufferMemory = arena.allocate(C_POINTER);
-            result = VkResult(vulkan_h.vkAllocateMemory(vkDevice, pMemoryAllocateInfo, MemorySegment.NULL, pVertexBufferMemory));
-            if (result != VK_SUCCESS) {
-                System.out.println("vkAllocateMemory failed for vertex buffer: " + result);
-                System.exit(-1);
-            }
-
-            result = VkResult(vulkan_h.vkBindBufferMemory(vkDevice, pVertexBuffer.get(C_POINTER, 0), pVertexBufferMemory.get(C_POINTER, 0), 0));
-            if (result != VK_SUCCESS) {
-                System.out.println("vkBindBufferMemory failed for vertex buffer: " + result);
-                System.exit(-1);
-            }
-
-            var pData = arena.allocate(C_POINTER);
-            result = VkResult(vulkan_h.vkMapMemory(vkDevice, pVertexBufferMemory.get(C_POINTER, 0), 0, vertices.length * 4, 0, pData));
-            if (result != VK_SUCCESS) {
-                System.out.println("vkMapMemory failed for vertex buffer: " + result);
-                System.exit(-1);
-            }
-
-            for (int i = 0; i < vertices.length; i++) {
-                pData.get(C_POINTER, 0).setAtIndex(C_FLOAT, i, vertices[i]);
-            }
-
-            vulkan_h.vkUnmapMemory(vkDevice, pVertexBufferMemory.get(C_POINTER, 0));
+            BufferMemoryPair indexBuffer = createIndexBuffer(arena, physicalDevice, vkDevice, pVkCommandPool, pVkGraphicsQueue, indices);
+            BufferMemoryPair vertexBuffer = createVertexBuffer(arena, physicalDevice, vkDevice, pVkCommandPool, pVkGraphicsQueue, vertices);
 
             var pCommandBuffers = createCommandBuffers(arena, vkDevice, pSwapChainFramebuffers, pVkCommandPool);
 
             createRenderPassesForSwapchains(arena, windowWidth, windowHeight, pRenderPass, pVkPipeline,
-                    pSwapChainFramebuffers, pCommandBuffers, pVertexBuffer, vertices);
+                    pSwapChainFramebuffers, pCommandBuffers, vertexBuffer.buffer, vertices, indexBuffer.buffer, indices);
 
             var pSemaphores = createSemaphores(arena, vkDevice);
 
@@ -371,14 +321,16 @@ public class Vulkan {
             vulkan_h.vkDestroySemaphore(vkDevice, pSemaphores.get(C_POINTER, 0), MemorySegment.NULL);
             vulkan_h.vkFreeCommandBuffers(vkDevice, pVkCommandPool.get(C_POINTER, 0),
                     pSwapChainFramebuffers.size(), pCommandBuffers);
-            vulkan_h.vkDestroyBuffer(vkDevice, pVertexBuffer.get(C_POINTER, 0), MemorySegment.NULL);
-            vulkan_h.vkFreeMemory(vkDevice, pVertexBufferMemory.get(C_POINTER, 0), MemorySegment.NULL);
+            vulkan_h.vkDestroyBuffer(vkDevice, vertexBuffer.buffer.get(C_POINTER, 0), MemorySegment.NULL);
+            vulkan_h.vkFreeMemory(vkDevice, vertexBuffer.bufferMemory.get(C_POINTER, 0), MemorySegment.NULL);
             vulkan_h.vkDestroySwapchainKHR(vkDevice, swapChain, MemorySegment.NULL);
             vulkan_h.vkDestroySurfaceKHR(vkInstance, vkSurface, MemorySegment.NULL);
             vulkan_h.vkDestroyDevice(vkDevice, MemorySegment.NULL);
             vulkan_h.vkDestroyInstance(vkInstance, MemorySegment.NULL);
         }
     }
+
+    private record BufferMemoryPair(MemorySegment buffer, MemorySegment bufferMemory) {}
 
     private static MemorySegment createWin32Surface(Arena arena, MemorySegment vkInstance) {
         var pWin32SurfaceCreateInfo = VkWin32SurfaceCreateInfoKHR.allocate(arena);
@@ -995,6 +947,199 @@ public class Vulkan {
         return pVkCommandPool;
     }
 
+    private static BufferMemoryPair createBuffer(Arena arena, MemorySegment vkDevice, PhysicalDevice physicalDevice, long bufferSize, int usage, int memoryPropertyFlags) {
+        System.out.println("createBuffer size: " + bufferSize);
+        var pVertexBufferCreateInfo = VkBufferCreateInfo.allocate(arena);
+        VkBufferCreateInfo.sType$set(pVertexBufferCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO());
+        VkBufferCreateInfo.size$set(pVertexBufferCreateInfo, bufferSize);
+        VkBufferCreateInfo.usage$set(pVertexBufferCreateInfo, usage);
+        VkBufferCreateInfo.sharingMode$set(pVertexBufferCreateInfo, vulkan_h.VK_SHARING_MODE_EXCLUSIVE());
+        var pBuffer = arena.allocate(C_POINTER);
+
+        var result = VkResult(vulkan_h.vkCreateBuffer(vkDevice, pVertexBufferCreateInfo, MemorySegment.NULL, pBuffer));
+        if (result != VK_SUCCESS) {
+            System.out.println("vkCreateBuffer failed for buffer: " + result);
+            System.exit(-1);
+        }
+
+        var pVertexBufferMemoryRequirements = VkMemoryRequirements.allocate(arena);
+        vulkan_h.vkGetBufferMemoryRequirements(vkDevice, pBuffer.get(C_POINTER, 0), pVertexBufferMemoryRequirements);
+
+        var pMemoryAllocateInfo = VkMemoryAllocateInfo.allocate(arena);
+        VkMemoryAllocateInfo.sType$set(pMemoryAllocateInfo, vulkan_h.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO());
+        VkMemoryAllocateInfo.allocationSize$set(pMemoryAllocateInfo, VkMemoryRequirements.size$get(pVertexBufferMemoryRequirements));
+        VkMemoryAllocateInfo.memoryTypeIndex$set(pMemoryAllocateInfo, physicalDevice.findMemoryType(
+                VkMemoryRequirements.memoryTypeBits$get(pVertexBufferMemoryRequirements),
+                memoryPropertyFlags));
+
+        var pBufferMemory = arena.allocate(C_POINTER);
+        result = VkResult(vulkan_h.vkAllocateMemory(vkDevice, pMemoryAllocateInfo, MemorySegment.NULL, pBufferMemory));
+        if (result != VK_SUCCESS) {
+            System.out.println("vkAllocateMemory failed for buffer: " + result);
+            System.exit(-1);
+        }
+
+        result = VkResult(vulkan_h.vkBindBufferMemory(vkDevice, pBuffer.get(C_POINTER, 0), pBufferMemory.get(C_POINTER, 0), 0));
+        if (result != VK_SUCCESS) {
+            System.out.println("vkBindBufferMemory failed for buffer: " + result);
+            System.exit(-1);
+        }
+
+        return new BufferMemoryPair(pBuffer, pBufferMemory);
+    }
+
+    private static BufferMemoryPair createStagingBuffer(Arena arena, PhysicalDevice physicalDevice,
+                                                        MemorySegment vkDevice, Object stagingDataArr) {
+        var pData = arena.allocate(C_POINTER);
+        VKResult result;
+        long bufferSize = -1;
+        if (stagingDataArr instanceof int[] intStagingDataArr) {
+            bufferSize = intStagingDataArr.length * 4L;
+        } else if (stagingDataArr instanceof float[] floatStagingDataArr) {
+            bufferSize = floatStagingDataArr.length * 4L;
+        } else if (stagingDataArr instanceof short[] shortStagingDataArr) {
+            bufferSize = shortStagingDataArr.length * 2L;
+        } else if (stagingDataArr instanceof char[] charStagingDataArr) {
+            bufferSize = charStagingDataArr.length * 2L;
+        }
+        System.out.println("Staging buffer size: " + bufferSize);
+        BufferMemoryPair stagingBuffer = createBuffer(arena, vkDevice, physicalDevice, bufferSize,
+                vulkan_h.VK_BUFFER_USAGE_TRANSFER_SRC_BIT(),
+                vulkan_h.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT() | vulkan_h.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT());
+        result = VkResult(vulkan_h.vkMapMemory(vkDevice, stagingBuffer.bufferMemory.get(C_POINTER, 0), 0, bufferSize, 0, pData));
+        if (result != VK_SUCCESS) {
+            System.out.println("vkMapMemory failed for staging buffer: " + result);
+            System.exit(-1);
+        }
+
+        if (stagingDataArr instanceof int[] intStagingDataArr) {
+            for (int i = 0; i < intStagingDataArr.length; i++) {
+                pData.get(C_POINTER, 0).setAtIndex(C_INT, i, intStagingDataArr[i]);
+            }
+        } else if (stagingDataArr instanceof float[] floatStagingDataArr) {
+            for (int i = 0; i < floatStagingDataArr.length; i++) {
+                pData.get(C_POINTER, 0).setAtIndex(C_FLOAT, i, floatStagingDataArr[i]);
+            }
+        } else if (stagingDataArr instanceof short[] shortStagingDataArr) {
+            for (int i = 0; i < shortStagingDataArr.length; i++) {
+                pData.get(C_POINTER, 0).setAtIndex(C_SHORT, i, shortStagingDataArr[i]);
+            }
+        } else if (stagingDataArr instanceof char[] charStagingDataArr) {
+            for (int i = 0; i < charStagingDataArr.length; i++) {
+                pData.get(C_POINTER, 0).setAtIndex(JAVA_CHAR, i, charStagingDataArr[i]);
+            }
+        }
+
+        vulkan_h.vkUnmapMemory(vkDevice, stagingBuffer.bufferMemory.get(C_POINTER, 0));
+        return stagingBuffer;
+    }
+
+    private static BufferMemoryPair createVertexBuffer(Arena arena, PhysicalDevice physicalDevice,
+                                                       MemorySegment vkDevice, MemorySegment pVkCommandPool,
+                                                       MemorySegment pVkGraphicsQueue, Object verticesArr) {
+        BufferMemoryPair stagingBuffer = createStagingBuffer(arena, physicalDevice, vkDevice, verticesArr);
+        long vertexBufferLength = -1;
+        if (verticesArr instanceof int[] intVerticesArr) {
+            vertexBufferLength = intVerticesArr.length * 4L; // 4 bytes per int
+        } else if (verticesArr instanceof float[] floatVerticesArr) {
+            vertexBufferLength = floatVerticesArr.length * 4L; // 4 bytes per float
+        }
+        BufferMemoryPair vertexBuffer = createBuffer(arena, vkDevice, physicalDevice, vertexBufferLength,
+                vulkan_h.VK_BUFFER_USAGE_TRANSFER_DST_BIT() | vulkan_h.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT(),
+                vulkan_h.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT());
+        copyBuffer(arena, pVkCommandPool, vkDevice, pVkGraphicsQueue, stagingBuffer, verticesArr, vertexBuffer);
+        return vertexBuffer;
+    }
+
+    private static BufferMemoryPair createIndexBuffer(Arena arena, PhysicalDevice physicalDevice,
+                                                      MemorySegment vkDevice, MemorySegment pVkCommandPool,
+                                                      MemorySegment pVkGraphicsQueue, Object indicesArr) {
+        BufferMemoryPair stagingBuffer = createStagingBuffer(arena, physicalDevice, vkDevice, indicesArr);
+        long indexBufferLength = -1;
+        if (indicesArr instanceof int[] intIndicesArr) {
+            indexBufferLength = intIndicesArr.length * 4L; // 4 bytes per int
+        } else if (indicesArr instanceof char[] charIndicesArr) {
+            indexBufferLength = charIndicesArr.length * 2L; // 2 bytes per char
+        }
+        BufferMemoryPair indexBuffer = createBuffer(arena, vkDevice, physicalDevice, indexBufferLength,
+                vulkan_h.VK_BUFFER_USAGE_TRANSFER_DST_BIT() | vulkan_h.VK_BUFFER_USAGE_INDEX_BUFFER_BIT(),
+                vulkan_h.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT());
+        copyBuffer(arena, pVkCommandPool, vkDevice, pVkGraphicsQueue, stagingBuffer, indicesArr, indexBuffer);
+        return indexBuffer;
+    }
+
+    private static void copyBuffer(Arena arena, MemorySegment pVkCommandPool, MemorySegment vkDevice,
+                                   MemorySegment pVkGraphicsQueue, BufferMemoryPair srcBufferPair, Object bufferDataArr,
+                                   BufferMemoryPair destBufferPair) {
+        VKResult result;
+        var commandBufferAllocateInfo = VkCommandBufferAllocateInfo.allocate(arena);
+        VkCommandBufferAllocateInfo.sType$set(commandBufferAllocateInfo, vulkan_h.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO());
+        VkCommandBufferAllocateInfo.level$set(commandBufferAllocateInfo, vulkan_h.VK_COMMAND_BUFFER_LEVEL_PRIMARY());
+        VkCommandBufferAllocateInfo.commandPool$set(commandBufferAllocateInfo, pVkCommandPool.get(C_POINTER, 0));
+        VkCommandBufferAllocateInfo.commandBufferCount$set(commandBufferAllocateInfo, 1);
+
+        var pCommandBuffer = arena.allocate(C_POINTER);
+        result = VkResult(vulkan_h.vkAllocateCommandBuffers(vkDevice, commandBufferAllocateInfo, pCommandBuffer));
+        if (result != VK_SUCCESS) {
+            System.out.println("vkAllocateCommandBuffers failed for vertex buffer: " + result);
+            System.exit(-1);
+        }
+
+        var beginInfo = VkCommandBufferBeginInfo.allocate(arena);
+        VkCommandBufferBeginInfo.sType$set(beginInfo, vulkan_h.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO());
+        VkCommandBufferBeginInfo.flags$set(beginInfo, vulkan_h.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT());
+        result = VkResult(vulkan_h.vkBeginCommandBuffer(pCommandBuffer.get(C_POINTER, 0), beginInfo));
+        if (result != VK_SUCCESS) {
+            System.out.println("vkBeginCommandBuffer failed for vertex buffer: " + result);
+            System.exit(-1);
+        }
+
+        var bufferCopy = VkBufferCopy.allocate(arena);
+        VkBufferCopy.srcOffset$set(bufferCopy, 0);
+        VkBufferCopy.dstOffset$set(bufferCopy, 0);
+
+        if (bufferDataArr instanceof byte[] byteBufferDataArr) {
+            VkBufferCopy.size$set(bufferCopy, byteBufferDataArr.length); // 1 byte per byte
+        } else if (bufferDataArr instanceof short[] shortBufferDataArr) {
+            VkBufferCopy.size$set(bufferCopy, shortBufferDataArr.length * 2L); // 2 bytes per short
+        } else if (bufferDataArr instanceof char[] charBufferDataArr) {
+            VkBufferCopy.size$set(bufferCopy, charBufferDataArr.length * 2L); // 2 bytes per char
+        } else if (bufferDataArr instanceof int[] intBufferDataArr) {
+            VkBufferCopy.size$set(bufferCopy, intBufferDataArr.length * 4L); // 4 bytes per int
+        } else if (bufferDataArr instanceof float[] floatBufferDataArr) {
+            VkBufferCopy.size$set(bufferCopy, floatBufferDataArr.length * 4L); // 4 bytes per float
+        } else if (bufferDataArr instanceof long[] longBufferDataArr) {
+            VkBufferCopy.size$set(bufferCopy, longBufferDataArr.length * 8L); // 8 bytes per long
+        } else if (bufferDataArr instanceof double[] doubleBufferDataArr) {
+            VkBufferCopy.size$set(bufferCopy, doubleBufferDataArr.length * 8L); // 8 bytes per double
+        }
+
+        vulkan_h.vkCmdCopyBuffer(pCommandBuffer.get(C_POINTER, 0), srcBufferPair.buffer.get(C_POINTER, 0),
+                destBufferPair.buffer.get(C_POINTER, 0), 1, bufferCopy);
+        vulkan_h.vkEndCommandBuffer(pCommandBuffer.get(C_POINTER, 0));
+
+        var pSubmitInfo = VkSubmitInfo.allocate(arena);
+        VkSubmitInfo.sType$set(pSubmitInfo, vulkan_h.VK_STRUCTURE_TYPE_SUBMIT_INFO());
+        VkSubmitInfo.commandBufferCount$set(pSubmitInfo, 1);
+        VkSubmitInfo.pCommandBuffers$set(pSubmitInfo, pCommandBuffer);
+        result = VkResult(vulkan_h.vkQueueSubmit(pVkGraphicsQueue.get(C_POINTER, 0), 1,
+                pSubmitInfo, vulkan_h.VK_NULL_HANDLE()));
+        if (result != VK_SUCCESS) {
+            System.out.println("vkQueueSubmit failed for vertex buffer: " + result);
+            System.exit(-1);
+        }
+
+        result = VkResult(vulkan_h.vkQueueWaitIdle(pVkGraphicsQueue.get(C_POINTER, 0)));
+        if (result != VK_SUCCESS) {
+            System.out.println("vkQueueSubmit failed for vertex buffer: " + result);
+            System.exit(-1);
+        }
+        vulkan_h.vkFreeCommandBuffers(vkDevice, pVkCommandPool.get(C_POINTER, 0), 1, pCommandBuffer);
+        vulkan_h.vkDestroyBuffer(vkDevice, srcBufferPair.buffer.get(C_POINTER, 0), MemorySegment.NULL);
+        vulkan_h.vkFreeMemory(vkDevice, srcBufferPair.bufferMemory.get(C_POINTER, 0), MemorySegment.NULL);
+    }
+
+
     private static MemorySegment createCommandBuffers(Arena arena, MemorySegment vkDevice,
                                                       List<MemorySegment> pSwapChainFramebuffers, MemorySegment pVkCommandPool) {
         VKResult result;
@@ -1019,7 +1164,7 @@ public class Vulkan {
     private static void createRenderPassesForSwapchains(Arena arena, int windowWidth, int windowHeight,
                                                         MemorySegment pRenderPass, MemorySegment pVkPipeline,
                                                         List<MemorySegment> pSwapChainFramebuffers, MemorySegment pCommandBuffers,
-                                                        MemorySegment pVertexBuffer, float[] vertices) {
+                                                        MemorySegment pVertexBuffer, float[] vertices, MemorySegment pIndexBuffer, Object indices) {
         VKResult result;
         for (int i = 0; i < pSwapChainFramebuffers.size(); i++) {
             System.out.println("Frame buffer i = " + i);
@@ -1058,14 +1203,22 @@ public class Vulkan {
             vulkan_h.vkCmdBindPipeline(vkCommandBuffer,
                     vulkan_h.VK_PIPELINE_BIND_POINT_GRAPHICS(), pVkPipeline.get(C_POINTER, 0));
 
-            var pBuffers = arena.allocateArray(C_POINTER, 1);
-            pBuffers.setAtIndex(C_POINTER, 0, pVertexBuffer);
+            // var pBuffers = arena.allocateArray(C_POINTER, 1);
+            // pBuffers.setAtIndex(C_POINTER, 0, pVertexBuffer);
             var pOffsets = arena.allocateArray(C_POINTER, 1);
             pOffsets.setAtIndex(C_LONG, 0, 0);
             vulkan_h.vkCmdBindVertexBuffers(vkCommandBuffer, 0, 1, pVertexBuffer, pOffsets);
             // vulkan_h.vkCmdBindVertexBuffers(vkCommandBuffer, 0, 1, pBuffers.get(C_POINTER, 0), pOffsets);
+            if (indices instanceof int[] intIndices) {
+                vulkan_h.vkCmdBindIndexBuffer(vkCommandBuffer, pIndexBuffer.get(C_POINTER, 0), 0, vulkan_h.VK_INDEX_TYPE_UINT32());
+                vulkan_h.vkCmdDrawIndexed(vkCommandBuffer, intIndices.length, 1, 0, 0, 0);
+            } else if (indices instanceof char[] charIndices) {
+                vulkan_h.vkCmdBindIndexBuffer(vkCommandBuffer, pIndexBuffer.get(C_POINTER, 0), 0, vulkan_h.VK_INDEX_TYPE_UINT16());
+                System.out.println("num vertices to draw: " + charIndices.length);
+                vulkan_h.vkCmdDrawIndexed(vkCommandBuffer, charIndices.length, 1, 0, 0, 0);
+            }
             System.out.println("num vertices: " + vertices.length / 6);
-            vulkan_h.vkCmdDraw(vkCommandBuffer, vertices.length / 6, 1, 0, 0);
+            //vulkan_h.vkCmdDraw(vkCommandBuffer, vertices.length / 6, 1, 0, 0);
             vulkan_h.vkCmdEndRenderPass(vkCommandBuffer);
 
             result = VkResult(vulkan_h.vkEndCommandBuffer(vkCommandBuffer));
@@ -1293,18 +1446,31 @@ public class Vulkan {
                                boolean supportsPresentToSurface, boolean supportsWin32Present) {
 
         @Override
-            public String toString() {
-                return "QueueFamily{" +
-                        ", queue=" + queue +
-                        ", queueFamilyIndex=" + queueFamilyIndex +
-                        ", numQueues=" + numQueues +
-                        ", supportsGraphicsOperations=" + supportsGraphicsOperations +
-                        ", supportsComputeOperations=" + supportsComputeOperations +
-                        ", supportsTransferOperations=" + supportsTransferOperations +
-                        ", supportsSparseMemoryManagementOperations=" + supportsSparseMemoryManagementOperations +
-                        ", supportsPresentToSurface=" + supportsPresentToSurface +
-                        ", supportsWin32Present=" + supportsWin32Present +
-                        '}';
-            }
+        public String toString() {
+            return "QueueFamily{" +
+                    ", queue=" + queue +
+                    ", queueFamilyIndex=" + queueFamilyIndex +
+                    ", numQueues=" + numQueues +
+                    ", supportsGraphicsOperations=" + supportsGraphicsOperations +
+                    ", supportsComputeOperations=" + supportsComputeOperations +
+                    ", supportsTransferOperations=" + supportsTransferOperations +
+                    ", supportsSparseMemoryManagementOperations=" + supportsSparseMemoryManagementOperations +
+                    ", supportsPresentToSurface=" + supportsPresentToSurface +
+                    ", supportsWin32Present=" + supportsWin32Present + '}';
         }
+    }
+
+    private static void imageIOExperiment() {
+        try {
+            BufferedImage img = javax.imageio.ImageIO.read(Vulkan.class.getResourceAsStream("wood.png"));
+            System.out.println("transfer type: " + img.getData().getTransferType());
+            if (img.getData().getTransferType() == DataBuffer.TYPE_BYTE) {
+                byte[] rgbaPixels = new byte[img.getWidth() * img.getHeight() * img.getData().getNumDataElements()];
+                img.getData().getDataElements(0, 0, img.getWidth(), img.getHeight(), rgbaPixels);
+                System.out.println("rgbaPixels size: " + rgbaPixels.length);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
 }
