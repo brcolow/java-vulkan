@@ -12,6 +12,8 @@ import com.brcolow.vulkanapi.VkCommandBufferBeginInfo;
 import com.brcolow.vulkanapi.VkCommandPoolCreateInfo;
 import com.brcolow.vulkanapi.VkComponentMapping;
 import com.brcolow.vulkanapi.VkDebugUtilsMessengerCreateInfoEXT;
+import com.brcolow.vulkanapi.VkDescriptorSetLayoutBinding;
+import com.brcolow.vulkanapi.VkDescriptorSetLayoutCreateInfo;
 import com.brcolow.vulkanapi.VkDeviceCreateInfo;
 import com.brcolow.vulkanapi.VkDeviceQueueCreateInfo;
 import com.brcolow.vulkanapi.VkExtensionProperties;
@@ -38,6 +40,7 @@ import com.brcolow.vulkanapi.VkPipelineShaderStageCreateInfo;
 import com.brcolow.vulkanapi.VkPipelineVertexInputStateCreateInfo;
 import com.brcolow.vulkanapi.VkPipelineViewportStateCreateInfo;
 import com.brcolow.vulkanapi.VkPresentInfoKHR;
+import com.brcolow.vulkanapi.VkPushConstantRange;
 import com.brcolow.vulkanapi.VkQueueFamilyProperties;
 import com.brcolow.vulkanapi.VkRect2D;
 import com.brcolow.vulkanapi.VkRenderPassBeginInfo;
@@ -232,6 +235,43 @@ public class Vulkan {
             char[] indices = new char[]{
                     0, 1, 2, 2, 3, 0
             };
+
+            // Cube
+            /*
+            float[] vertices = new float[]{
+                    -3f, 3f, -3f, // Vertex 0, Position
+                    1.0f, 0.0f, 0.0f, // Vertex 0, Color (red)
+                    3f, 3f, -3f, // Vertex 1, Position
+                    0.0f, 1.0f, 0.0f, // Vertex 1, Color (green)
+                    -3f, -3f, -3f, // Vertex 2, Position
+                    0.0f, 0.0f, 1.0f, // Vertex 2, Color (blue)
+                    3f, -3f, -3f, // Vertex 3, Position
+                    1.0f, 1.0f, 1.0f, // Vertex 3, Color (white)
+                    -3f, 3f, 3f, // Vertex 4, Position
+                    1.0f, 0.0f, 1.0f, // Vertex 4, Color (magenta)
+                    3f, 3f, 3f, // Vertex 5, Position
+                    0.5f, 0.5f, 0.5f, // Vertex 5, Color (gray)
+                    -3f, -3f, 3f, // Vertex 6, Position
+                    0.5f, 0.5f, 0.0f, // Vertex 6, Color (olive)
+                    3f, -3f, 3f, // Vertex 7, Position
+                    0.0f, 0.5f, 0.5f, // Vertex 7, Color (teal)
+            };
+
+            char[] indices = new char[]{
+                    0, 1, 2, // Side 0
+                    2, 1, 3,
+                    4, 0, 6, // Side 1
+                    6, 0, 2,
+                    7, 5, 6, // Side 2
+                    6, 5, 4,
+                    3, 1, 7, // Side 3
+                    7, 1, 5,
+                    4, 5, 0, // Side 4
+                    0, 5, 1,
+                    3, 7, 2, // Side 5
+                    2, 7, 6
+            };
+             */
             VkVertexInputBindingDescription.stride$set(pVertexInputBindingDescription, 24); // pos + color = 12 + 12 bytes
             VkVertexInputBindingDescription.inputRate$set(pVertexInputBindingDescription, vulkan_h.VK_VERTEX_INPUT_RATE_VERTEX());
 
@@ -257,8 +297,10 @@ public class Vulkan {
 
             var pRenderPass = createRenderPass(arena, swapChainImageFormat, vkDevice);
 
-            var pVkPipeline = createGraphicsPipeline(arena, windowWidth, windowHeight, vkDevice,
-                    pVertShaderModule, pFragShaderModule, pVertexInputStateInfo, pRenderPass);
+            var pDescriptorSetLayoutCreateInfo = createDescriptorSetLayout(arena, vkDevice);
+
+            var pipelineLayoutPair = createGraphicsPipeline(arena, windowWidth, windowHeight, vkDevice,
+                    pVertShaderModule, pFragShaderModule, pVertexInputStateInfo, pRenderPass, pDescriptorSetLayoutCreateInfo);
 
             List<MemorySegment> pSwapChainFramebuffers = createSwapChainFramebuffers(arena, windowWidth, windowHeight,
                     vkDevice, imageViews, pRenderPass);
@@ -271,8 +313,10 @@ public class Vulkan {
 
             var pCommandBuffers = createCommandBuffers(arena, vkDevice, pSwapChainFramebuffers, pVkCommandPool);
 
-            createRenderPassesForSwapchains(arena, windowWidth, windowHeight, pRenderPass, pVkPipeline,
-                    pSwapChainFramebuffers, pCommandBuffers, vertexBuffer.buffer, vertices, indexBuffer.buffer, indices);
+            for (int i = 0; i < pSwapChainFramebuffers.size(); i++) {
+                createRenderPassesForSwapchain(arena, windowWidth, windowHeight, pRenderPass, pipelineLayoutPair,
+                        pSwapChainFramebuffers.get(i), pCommandBuffers.getAtIndex(C_POINTER, i), vertexBuffer.buffer, indexBuffer.buffer, indices, i);
+            }
 
             var pSemaphores = createSemaphores(arena, vkDevice);
 
@@ -282,6 +326,7 @@ public class Vulkan {
 
             long lastFrameTimeNanos = 0;
 
+            int frame = 3;
             while (!WindowProc.getExitRequested().get()) {
                 if (lastFrameTimeNanos > 0) {
                     long nanosElapsed = System.nanoTime() - lastFrameTimeNanos;
@@ -305,6 +350,8 @@ public class Vulkan {
                     System.out.println("Failed to get next frame via vkAcquireNextImageKHR: " + result);
                     System.exit(-1);
                 }
+                createRenderPassesForSwapchain(arena, windowWidth, windowHeight, pRenderPass, pipelineLayoutPair,
+                        pSwapChainFramebuffers.get(pImageIndex.get(C_INT, 0)), pCommandBuffers.getAtIndex(C_POINTER, pImageIndex.get(C_INT, 0)), vertexBuffer.buffer, indexBuffer.buffer, indices, frame);
 
                 submitQueue(arena, pVkGraphicsQueue, pCommandBuffers, pSemaphores, pImageIndex, pFence.get(C_POINTER, 0));
                 presentQueue(arena, pVkGraphicsQueue, pSwapChain, pSemaphores, pImageIndex);
@@ -314,6 +361,7 @@ public class Vulkan {
                     Windows_h.TranslateMessage(pMsg);
                     Windows_h.DispatchMessageW(pMsg);
                 }
+                frame++;
             }
 
             System.out.println("exit requested");
@@ -325,12 +373,93 @@ public class Vulkan {
             vulkan_h.vkFreeMemory(vkDevice, vertexBuffer.bufferMemory.get(C_POINTER, 0), MemorySegment.NULL);
             vulkan_h.vkDestroySwapchainKHR(vkDevice, swapChain, MemorySegment.NULL);
             vulkan_h.vkDestroySurfaceKHR(vkInstance, vkSurface, MemorySegment.NULL);
+            vulkan_h.vkDestroyDescriptorSetLayout(vkDevice, pDescriptorSetLayoutCreateInfo, MemorySegment.NULL);
+            vulkan_h.vkDestroyPipelineLayout(vkDevice, pipelineLayoutPair.pipelineLayout.get(C_POINTER, 0), MemorySegment.NULL);
             vulkan_h.vkDestroyDevice(vkDevice, MemorySegment.NULL);
             vulkan_h.vkDestroyInstance(vkInstance, MemorySegment.NULL);
         }
     }
 
+    private static void setPushConstants(Arena arena, MemorySegment pPipelineLayout, MemorySegment pCommandBuffer, int windowWidth, int windowHeight, int frameBufferIndex) {
+        // View matrix (camera).
+        // We use a simple translation matrix to put the camera at camPos.
+        // TODO: Use a lookAt matrix to do something similar to: glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        float[] camPos = new float[]{ 0.f, 0.f, -2f };
+        float[] view = new float[] {
+                1f, 0f, 0f, camPos[0],
+                0f, 1f, 0f, camPos[1],
+                0f, 0f, 1f, camPos[2],
+                0f, 0f, 0f, 1f
+        };
+
+        // Projection matrix.
+        // glm::mat4 projection = glm::perspective(glm::radians(70.f), 1700.f / 900.f, 0.1f,  200.0f);
+        //                                        (fovy,               aspect,         zNear, zFar)
+        // glm::perspective creates a perspective matrix with the arguments (fovy, aspect, zNear, zFar) like so:
+        //
+        //  [ 1 / (aspect * tan(fovy/2))   0 0 0                                ]
+        //  [ 0   1 / (tan(fovy/2))           0 0                               ]
+        //  [ 0   0   zFar / (zNear - zFar)    -(zFar * zNear) / (zFar - zNear) ]
+        //  [ 0   0   1  0                                                      ]
+        //
+        //  projection[1][1] *= -1; ------------- Why?
+        float fieldOfViewY = 1.0472f; // 60 degrees in radians
+        float aspectRatio =  (float) windowWidth / windowHeight;
+        float zNear = 0.1f;
+        float zFar = 100f;
+
+        float tanHalfFov = (float) Math.tan(fieldOfViewY / 2f);
+
+        float[] projection = new float[] {
+                1f / (aspectRatio * tanHalfFov), 0f, 0f, 0f,
+                0f, -1f / tanHalfFov, 0f, 0f,
+                0f, 0f, -(zFar + zNear) / (zFar - zNear), -(zFar * zNear) / (zFar - zNear),
+                0f, 0f, -1f, 0f
+        };
+
+        // Model matrix.
+        // glm::mat4 model = glm::rotate(glm::mat4{ 1.0f }, glm::radians(_frameNumber * 0.4f), glm::vec3(0, 1, 0));
+        //        ( xx(1-c)+c	xy(1-c)-zs  xz(1-c)+ys	 0  )
+        //		  |					    |
+        //		  | yx(1-c)+zs	yy(1-c)+c   yz(1-c)-xs	 0  |
+        //		  | xz(1-c)-ys	yz(1-c)+xs  zz(1-c)+c	 0  |
+        //		  |					    |
+        //		  (	 0	     0		 0	 1  )
+        //
+        // Where c = cos(angle),	s = sine(angle), and ||( x,y,z )|| = 1 (if not, the GL will normalize this vector).
+        // This is rotation by an angle *around* an axis - not rotation *about* an axis as in simple yaw/pitch/roll.
+        float rotationAngle = frameBufferIndex * 0.05f;
+        float[] rotationAxis = new float[] {0f, 1f, 0f};
+        // TODO: Check if needs to be normed.
+        rotationAxis = Matrix.normalizeVec3FastInvSqrt(rotationAxis);
+        float[] model = new float[] {
+                (float) (((rotationAxis[0] * rotationAxis[0]) * (1 - Math.cos(rotationAngle))) + Math.cos(rotationAngle)),                     // xx(1-c) + c
+                (float) (((rotationAxis[0] * rotationAxis[1]) * (1 - Math.cos(rotationAngle))) - (rotationAxis[2] * Math.sin(rotationAngle))), // xy(1-c) - zs
+                (float) (((rotationAxis[0] * rotationAxis[2]) * (1 - Math.cos(rotationAngle))) + (rotationAxis[1] * Math.sin(rotationAngle))), // xz(1-c) + ys
+                0f,
+                (float) (((rotationAxis[1] * rotationAxis[0]) * (1 - Math.cos(rotationAngle))) + (rotationAxis[2] * Math.sin(rotationAngle))), // yx(1-c) + zs
+                (float) (((rotationAxis[1] * rotationAxis[1]) * (1 - Math.cos(rotationAngle))) + Math.cos(rotationAngle)),                     // yy(1-c) + c
+                (float) (((rotationAxis[1] * rotationAxis[2]) * (1 - Math.cos(rotationAngle))) - (rotationAxis[0] * Math.sin(rotationAngle))), // yz(1-c) - xs
+                0f,
+                (float) (((rotationAxis[0] * rotationAxis[2]) * (1 - Math.cos(rotationAngle))) - (rotationAxis[1] * Math.sin(rotationAngle))), // xz(1-c) - ys
+                (float) (((rotationAxis[1] * rotationAxis[2]) * (1 - Math.cos(rotationAngle))) + (rotationAxis[0] * Math.sin(rotationAngle))), // yz(1-c) + xs
+                (float) (((rotationAxis[2] * rotationAxis[2]) * (1 - Math.cos(rotationAngle))) + Math.cos(rotationAngle)),                     // zz(1-c) + c
+                0f,
+                0f, 0f, 0f, 1f
+        };
+
+        float[] vm = Matrix.mul_4x4_256(view, model);
+        float[] pvm = Matrix.mul_4x4_128(projection, vm);
+        var pValues = arena.allocateArray(C_FLOAT, view);
+        for (int i = 0; i < vm.length; i++) {
+            pValues.setAtIndex(C_FLOAT, i, pvm[i]);
+        }
+        vulkan_h.vkCmdPushConstants(pCommandBuffer, pPipelineLayout.get(C_POINTER, 0), vulkan_h.VK_SHADER_STAGE_VERTEX_BIT(), 0, 64, pValues);
+    }
+
+
     private record BufferMemoryPair(MemorySegment buffer, MemorySegment bufferMemory) {}
+    private record PipelineLayoutPair(MemorySegment pipeline, MemorySegment pipelineLayout) {}
 
     private static MemorySegment createWin32Surface(Arena arena, MemorySegment vkInstance) {
         var pWin32SurfaceCreateInfo = VkWin32SurfaceCreateInfoKHR.allocate(arena);
@@ -676,8 +805,8 @@ public class Vulkan {
         VkSwapchainCreateInfoKHR.imageSharingMode$set(swapchainCreateInfoKHR, vulkan_h.VK_SHARING_MODE_EXCLUSIVE());
         VkSwapchainCreateInfoKHR.preTransform$set(swapchainCreateInfoKHR, VkSurfaceCapabilitiesKHR.currentTransform$get(pSurfaceCapabilities));
         VkSwapchainCreateInfoKHR.compositeAlpha$set(swapchainCreateInfoKHR, vulkan_h.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR());
-        VkSwapchainCreateInfoKHR.presentMode$set(swapchainCreateInfoKHR, vulkan_h.VK_PRESENT_MODE_IMMEDIATE_KHR()); // Can produce tearing (used to see what max FPS is like).
-        // VkSwapchainCreateInfoKHR.presentMode$set(swapchainCreateInfoKHR, vulkan_h.VK_PRESENT_MODE_FIFO_KHR()); // This essentially sets VSYNC.
+        // VkSwapchainCreateInfoKHR.presentMode$set(swapchainCreateInfoKHR, vulkan_h.VK_PRESENT_MODE_IMMEDIATE_KHR()); // Can produce tearing (used to see what max FPS is like).
+        VkSwapchainCreateInfoKHR.presentMode$set(swapchainCreateInfoKHR, vulkan_h.VK_PRESENT_MODE_FIFO_KHR()); // This essentially sets VSYNC.
         VkSwapchainCreateInfoKHR.clipped$set(swapchainCreateInfoKHR, vulkan_h.VK_TRUE());
         VkSwapchainCreateInfoKHR.oldSwapchain$set(swapchainCreateInfoKHR, vulkan_h.VK_NULL_HANDLE());
 
@@ -778,9 +907,32 @@ public class Vulkan {
         return pRenderPass;
     }
 
-    private static MemorySegment createGraphicsPipeline(Arena arena, int windowWidth, int windowHeight, MemorySegment vkDevice,
+    private static MemorySegment createDescriptorSetLayout(Arena arena, MemorySegment vkDevice) {
+        var uboDescriptorSetLayoutBinding = VkDescriptorSetLayoutBinding.allocate(arena);
+        VkDescriptorSetLayoutBinding.binding$set(uboDescriptorSetLayoutBinding, 0);
+        VkDescriptorSetLayoutBinding.descriptorType$set(uboDescriptorSetLayoutBinding, vulkan_h.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER());
+        VkDescriptorSetLayoutBinding.descriptorCount$set(uboDescriptorSetLayoutBinding, 1);
+        VkDescriptorSetLayoutBinding.stageFlags$set(uboDescriptorSetLayoutBinding, vulkan_h.VK_SHADER_STAGE_VERTEX_BIT());
+
+        var descriptorSetLayoutCreateInfo = VkDescriptorSetLayoutCreateInfo.allocate(arena);
+        VkDescriptorSetLayoutCreateInfo.sType$set(descriptorSetLayoutCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO());
+        VkDescriptorSetLayoutCreateInfo.bindingCount$set(descriptorSetLayoutCreateInfo, 1);
+        VkDescriptorSetLayoutCreateInfo.pBindings$set(descriptorSetLayoutCreateInfo, uboDescriptorSetLayoutBinding);
+
+        var result = VkResult(vulkan_h.vkCreateDescriptorSetLayout(vkDevice,
+                descriptorSetLayoutCreateInfo, MemorySegment.NULL, descriptorSetLayoutCreateInfo));
+        if (result != VK_SUCCESS) {
+            System.out.println("vkCreateDescriptorSetLayout failed: " + result);
+            System.exit(-1);
+        }
+
+        return descriptorSetLayoutCreateInfo;
+    }
+
+    private static PipelineLayoutPair createGraphicsPipeline(Arena arena, int windowWidth, int windowHeight, MemorySegment vkDevice,
                                                         MemorySegment pVertShaderModule, MemorySegment pFragShaderModule,
-                                                        MemorySegment vertexInputStateInfo, MemorySegment pRenderPass) {
+                                                        MemorySegment vertexInputStateInfo, MemorySegment pRenderPass,
+                                                        MemorySegment pDescriptorSetLayoutCreateInfo) {
         var pViewport = VkViewport.allocate(arena);
         VkViewport.x$set(pViewport, 0.0f);
         VkViewport.y$set(pViewport, 0.0f);
@@ -804,11 +956,15 @@ public class Vulkan {
 
         var pPipelineRasterizationStateInfo = VkPipelineRasterizationStateCreateInfo.allocate(arena);
         VkPipelineRasterizationStateCreateInfo.sType$set(pPipelineRasterizationStateInfo, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO());
-        VkPipelineRasterizationStateCreateInfo.depthClampEnable$set(pPipelineRasterizationStateInfo, vulkan_h.VK_FALSE());
+        // FIXME: Setting depthClampEnable to true without enabling depthClamp feature is a weird hack:
+        //      "If the pipeline is not created with VkPipelineRasterizationDepthClipStateCreateInfoEXT present then enabling
+        //      depth clamp will also disable clipping primitives to the z planes of the frustrum as described in Primitive Clipping."
+        //  For now, this is the only way I found to not have the square dissapear on part of its rotation.
+        VkPipelineRasterizationStateCreateInfo.depthClampEnable$set(pPipelineRasterizationStateInfo, vulkan_h.VK_TRUE());
         VkPipelineRasterizationStateCreateInfo.rasterizerDiscardEnable$set(pPipelineRasterizationStateInfo, vulkan_h.VK_FALSE());
         VkPipelineRasterizationStateCreateInfo.polygonMode$set(pPipelineRasterizationStateInfo, vulkan_h.VK_POLYGON_MODE_FILL());
         VkPipelineRasterizationStateCreateInfo.lineWidth$set(pPipelineRasterizationStateInfo, 1.0f);
-        VkPipelineRasterizationStateCreateInfo.cullMode$set(pPipelineRasterizationStateInfo, vulkan_h.VK_CULL_MODE_BACK_BIT());
+        VkPipelineRasterizationStateCreateInfo.cullMode$set(pPipelineRasterizationStateInfo, vulkan_h.VK_CULL_MODE_NONE());
         VkPipelineRasterizationStateCreateInfo.frontFace$set(pPipelineRasterizationStateInfo, vulkan_h.VK_FRONT_FACE_CLOCKWISE());
         VkPipelineRasterizationStateCreateInfo.depthBiasEnable$set(pPipelineRasterizationStateInfo, vulkan_h.VK_FALSE());
         VkPipelineRasterizationStateCreateInfo.depthBiasConstantFactor$set(pPipelineRasterizationStateInfo, 0.0f);
@@ -849,7 +1005,16 @@ public class Vulkan {
 
         var pPipelineLayout = arena.allocate(C_POINTER);
         var pPipelineLayoutCreateInfo = VkPipelineLayoutCreateInfo.allocate(arena);
+        // Setup push constants.
+        var pPushConstantRange = VkPushConstantRange.allocate(arena);
+        VkPushConstantRange.offset$set(pPushConstantRange, 0);
+        VkPushConstantRange.size$set(pPushConstantRange, 64); // 4x4 matrix of floats = 16*4 = 64 bytes
+        VkPushConstantRange.stageFlags$set(pPushConstantRange, vulkan_h.VK_SHADER_STAGE_VERTEX_BIT());
         VkPipelineLayoutCreateInfo.sType$set(pPipelineLayoutCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO());
+        VkPipelineLayoutCreateInfo.setLayoutCount$set(pPipelineLayoutCreateInfo, 1);
+        VkPipelineLayoutCreateInfo.pSetLayouts$set(pPipelineLayoutCreateInfo, pDescriptorSetLayoutCreateInfo);
+        VkPipelineLayoutCreateInfo.pPushConstantRanges$set(pPipelineLayoutCreateInfo, pPushConstantRange);
+        VkPipelineLayoutCreateInfo.pushConstantRangeCount$set(pPipelineLayoutCreateInfo, 1);
 
         var result = VkResult(vulkan_h.vkCreatePipelineLayout(vkDevice,
                 pPipelineLayoutCreateInfo, MemorySegment.NULL, pPipelineLayout));
@@ -896,7 +1061,7 @@ public class Vulkan {
         } else {
             System.out.println("vkCreateGraphicsPipelines succeeded");
         }
-        return pVkPipeline;
+        return new PipelineLayoutPair(pVkPipeline, pPipelineLayout);
     }
 
     private static List<MemorySegment> createSwapChainFramebuffers(Arena arena, int windowWidth, int windowHeight,
@@ -1006,32 +1171,39 @@ public class Vulkan {
         BufferMemoryPair stagingBuffer = createBuffer(arena, vkDevice, physicalDevice, bufferSize,
                 vulkan_h.VK_BUFFER_USAGE_TRANSFER_SRC_BIT(),
                 vulkan_h.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT() | vulkan_h.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT());
+
         result = VkResult(vulkan_h.vkMapMemory(vkDevice, stagingBuffer.bufferMemory.get(C_POINTER, 0), 0, bufferSize, 0, pData));
         if (result != VK_SUCCESS) {
             System.out.println("vkMapMemory failed for staging buffer: " + result);
             System.exit(-1);
         }
 
-        if (stagingDataArr instanceof int[] intStagingDataArr) {
+        setDataArrayPtr(pData, stagingDataArr);
+
+        vulkan_h.vkUnmapMemory(vkDevice, stagingBuffer.bufferMemory.get(C_POINTER, 0));
+        return stagingBuffer;
+    }
+
+    private static MemorySegment setDataArrayPtr(MemorySegment pData, Object dataArray) {
+        if (dataArray instanceof int[] intStagingDataArr) {
             for (int i = 0; i < intStagingDataArr.length; i++) {
                 pData.get(C_POINTER, 0).setAtIndex(C_INT, i, intStagingDataArr[i]);
             }
-        } else if (stagingDataArr instanceof float[] floatStagingDataArr) {
+        } else if (dataArray instanceof float[] floatStagingDataArr) {
             for (int i = 0; i < floatStagingDataArr.length; i++) {
                 pData.get(C_POINTER, 0).setAtIndex(C_FLOAT, i, floatStagingDataArr[i]);
             }
-        } else if (stagingDataArr instanceof short[] shortStagingDataArr) {
+        } else if (dataArray instanceof short[] shortStagingDataArr) {
             for (int i = 0; i < shortStagingDataArr.length; i++) {
                 pData.get(C_POINTER, 0).setAtIndex(C_SHORT, i, shortStagingDataArr[i]);
             }
-        } else if (stagingDataArr instanceof char[] charStagingDataArr) {
+        } else if (dataArray instanceof char[] charStagingDataArr) {
             for (int i = 0; i < charStagingDataArr.length; i++) {
                 pData.get(C_POINTER, 0).setAtIndex(JAVA_CHAR, i, charStagingDataArr[i]);
             }
         }
 
-        vulkan_h.vkUnmapMemory(vkDevice, stagingBuffer.bufferMemory.get(C_POINTER, 0));
-        return stagingBuffer;
+        return pData;
     }
 
     private static BufferMemoryPair createVertexBuffer(Arena arena, PhysicalDevice physicalDevice,
@@ -1161,73 +1333,64 @@ public class Vulkan {
         return pCommandBuffers;
     }
 
-    private static void createRenderPassesForSwapchains(Arena arena, int windowWidth, int windowHeight,
-                                                        MemorySegment pRenderPass, MemorySegment pVkPipeline,
-                                                        List<MemorySegment> pSwapChainFramebuffers, MemorySegment pCommandBuffers,
-                                                        MemorySegment pVertexBuffer, float[] vertices, MemorySegment pIndexBuffer, Object indices) {
+    private static void createRenderPassesForSwapchain(Arena arena, int windowWidth, int windowHeight,
+                                                       MemorySegment pRenderPass, PipelineLayoutPair pipelineLayoutPair,
+                                                       MemorySegment pSwapChainFramebuffer, MemorySegment vkCommandBuffer,
+                                                       MemorySegment pVertexBuffer, MemorySegment pIndexBuffer, Object indices,
+                                                       int frameIndex) {
         VKResult result;
-        for (int i = 0; i < pSwapChainFramebuffers.size(); i++) {
-            System.out.println("Frame buffer i = " + i);
-            var pCommandBufferBeginInfo = VkCommandBufferBeginInfo.allocate(arena);
-            VkCommandBufferBeginInfo.sType$set(pCommandBufferBeginInfo, vulkan_h.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO());
 
-            result = VkResult(vulkan_h.vkBeginCommandBuffer(pCommandBuffers.getAtIndex(C_POINTER, i),
-                    pCommandBufferBeginInfo));
-            if (result != VK_SUCCESS) {
-                System.out.println("vkBeginCommandBuffer failed: " + result);
-                System.exit(-1);
-            } else {
-                System.out.println("vkBeginCommandBuffer succeeded");
-            }
+        var pCommandBufferBeginInfo = VkCommandBufferBeginInfo.allocate(arena);
+        VkCommandBufferBeginInfo.sType$set(pCommandBufferBeginInfo, vulkan_h.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO());
 
-            var pRenderPassBeginInfo = VkRenderPassBeginInfo.allocate(arena);
-            VkRenderPassBeginInfo.sType$set(pRenderPassBeginInfo, vulkan_h.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO());
-            VkRenderPassBeginInfo.renderPass$set(pRenderPassBeginInfo, pRenderPass.get(C_POINTER, 0));
-            VkRenderPassBeginInfo.framebuffer$set(pRenderPassBeginInfo, pSwapChainFramebuffers.get(i).get(C_POINTER, 0));
-            VkOffset2D.x$set(VkRect2D.offset$slice(VkRenderPassBeginInfo.renderArea$slice(pRenderPassBeginInfo)), 0);
-            VkOffset2D.y$set(VkRect2D.offset$slice(VkRenderPassBeginInfo.renderArea$slice(pRenderPassBeginInfo)), 0);
-            VkExtent2D.width$set(VkRect2D.extent$slice(VkRenderPassBeginInfo.renderArea$slice(pRenderPassBeginInfo)), windowWidth);
-            VkExtent2D.height$set(VkRect2D.extent$slice(VkRenderPassBeginInfo.renderArea$slice(pRenderPassBeginInfo)), windowHeight);
-            VkRenderPassBeginInfo.clearValueCount$set(pRenderPassBeginInfo, 1);
-            var pClearValue = VkClearValue.allocate(arena);
-            // rgba...may want to extract as a utility method as we go further.
-            VkClearValue.color$slice(pClearValue).setAtIndex(C_FLOAT, 0, 1.0f);
-            VkClearValue.color$slice(pClearValue).setAtIndex(C_FLOAT, 1, 1.0f);
-            VkClearValue.color$slice(pClearValue).setAtIndex(C_FLOAT, 2, 0.0f);
-            VkClearValue.color$slice(pClearValue).setAtIndex(C_FLOAT, 3, 1.0f);
-            VkRenderPassBeginInfo.pClearValues$set(pRenderPassBeginInfo, pClearValue);
+        result = VkResult(vulkan_h.vkBeginCommandBuffer(vkCommandBuffer,
+                pCommandBufferBeginInfo));
+        if (result != VK_SUCCESS) {
+            System.out.println("vkBeginCommandBuffer failed: " + result);
+            System.exit(-1);
+        }
 
-            var vkCommandBuffer = pCommandBuffers.getAtIndex(C_POINTER, i);
+        var pRenderPassBeginInfo = VkRenderPassBeginInfo.allocate(arena);
+        VkRenderPassBeginInfo.sType$set(pRenderPassBeginInfo, vulkan_h.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO());
+        VkRenderPassBeginInfo.renderPass$set(pRenderPassBeginInfo, pRenderPass.get(C_POINTER, 0));
+        VkRenderPassBeginInfo.framebuffer$set(pRenderPassBeginInfo, pSwapChainFramebuffer.get(C_POINTER, 0));
+        VkOffset2D.x$set(VkRect2D.offset$slice(VkRenderPassBeginInfo.renderArea$slice(pRenderPassBeginInfo)), 0);
+        VkOffset2D.y$set(VkRect2D.offset$slice(VkRenderPassBeginInfo.renderArea$slice(pRenderPassBeginInfo)), 0);
+        VkExtent2D.width$set(VkRect2D.extent$slice(VkRenderPassBeginInfo.renderArea$slice(pRenderPassBeginInfo)), windowWidth);
+        VkExtent2D.height$set(VkRect2D.extent$slice(VkRenderPassBeginInfo.renderArea$slice(pRenderPassBeginInfo)), windowHeight);
+        VkRenderPassBeginInfo.clearValueCount$set(pRenderPassBeginInfo, 1);
+        var pClearValue = VkClearValue.allocate(arena);
+        // rgba...may want to extract as a utility method as we go further.
+        VkClearValue.color$slice(pClearValue).setAtIndex(C_FLOAT, 0, 1.0f);
+        VkClearValue.color$slice(pClearValue).setAtIndex(C_FLOAT, 1, 1.0f);
+        VkClearValue.color$slice(pClearValue).setAtIndex(C_FLOAT, 2, 0.0f);
+        VkClearValue.color$slice(pClearValue).setAtIndex(C_FLOAT, 3, 1.0f);
+        VkRenderPassBeginInfo.pClearValues$set(pRenderPassBeginInfo, pClearValue);
 
-            vulkan_h.vkCmdBeginRenderPass(vkCommandBuffer, pRenderPassBeginInfo, vulkan_h.VK_SUBPASS_CONTENTS_INLINE());
-            vulkan_h.vkCmdBindPipeline(vkCommandBuffer,
-                    vulkan_h.VK_PIPELINE_BIND_POINT_GRAPHICS(), pVkPipeline.get(C_POINTER, 0));
 
-            // var pBuffers = arena.allocateArray(C_POINTER, 1);
-            // pBuffers.setAtIndex(C_POINTER, 0, pVertexBuffer);
-            var pOffsets = arena.allocateArray(C_POINTER, 1);
-            pOffsets.setAtIndex(C_LONG, 0, 0);
-            vulkan_h.vkCmdBindVertexBuffers(vkCommandBuffer, 0, 1, pVertexBuffer, pOffsets);
-            // vulkan_h.vkCmdBindVertexBuffers(vkCommandBuffer, 0, 1, pBuffers.get(C_POINTER, 0), pOffsets);
-            if (indices instanceof int[] intIndices) {
-                vulkan_h.vkCmdBindIndexBuffer(vkCommandBuffer, pIndexBuffer.get(C_POINTER, 0), 0, vulkan_h.VK_INDEX_TYPE_UINT32());
-                vulkan_h.vkCmdDrawIndexed(vkCommandBuffer, intIndices.length, 1, 0, 0, 0);
-            } else if (indices instanceof char[] charIndices) {
-                vulkan_h.vkCmdBindIndexBuffer(vkCommandBuffer, pIndexBuffer.get(C_POINTER, 0), 0, vulkan_h.VK_INDEX_TYPE_UINT16());
-                System.out.println("num vertices to draw: " + charIndices.length);
-                vulkan_h.vkCmdDrawIndexed(vkCommandBuffer, charIndices.length, 1, 0, 0, 0);
-            }
-            System.out.println("num vertices: " + vertices.length / 6);
-            //vulkan_h.vkCmdDraw(vkCommandBuffer, vertices.length / 6, 1, 0, 0);
-            vulkan_h.vkCmdEndRenderPass(vkCommandBuffer);
+        vulkan_h.vkCmdBeginRenderPass(vkCommandBuffer, pRenderPassBeginInfo, vulkan_h.VK_SUBPASS_CONTENTS_INLINE());
+        vulkan_h.vkCmdBindPipeline(vkCommandBuffer,
+                vulkan_h.VK_PIPELINE_BIND_POINT_GRAPHICS(), pipelineLayoutPair.pipeline.get(C_POINTER, 0));
 
-            result = VkResult(vulkan_h.vkEndCommandBuffer(vkCommandBuffer));
-            if (result != VK_SUCCESS) {
-                System.out.println("vkEndCommandBuffer failed: " + result);
-                System.exit(-1);
-            } else {
-                System.out.println("vkEndCommandBuffer succeeded");
-            }
+        var pOffsets = arena.allocateArray(C_POINTER, 1);
+        pOffsets.setAtIndex(C_LONG, 0, 0);
+        vulkan_h.vkCmdBindVertexBuffers(vkCommandBuffer, 0, 1, pVertexBuffer, pOffsets);
+
+        setPushConstants(arena, pipelineLayoutPair.pipelineLayout, vkCommandBuffer, windowWidth, windowHeight, frameIndex);
+
+        if (indices instanceof int[] intIndices) {
+            vulkan_h.vkCmdBindIndexBuffer(vkCommandBuffer, pIndexBuffer.get(C_POINTER, 0), 0, vulkan_h.VK_INDEX_TYPE_UINT32());
+            vulkan_h.vkCmdDrawIndexed(vkCommandBuffer, intIndices.length, 1, 0, 0, 0);
+        } else if (indices instanceof char[] charIndices) {
+            vulkan_h.vkCmdBindIndexBuffer(vkCommandBuffer, pIndexBuffer.get(C_POINTER, 0), 0, vulkan_h.VK_INDEX_TYPE_UINT16());
+            vulkan_h.vkCmdDrawIndexed(vkCommandBuffer, charIndices.length, 1, 0, 0, 0);
+        }
+        vulkan_h.vkCmdEndRenderPass(vkCommandBuffer);
+
+        result = VkResult(vulkan_h.vkEndCommandBuffer(vkCommandBuffer));
+        if (result != VK_SUCCESS) {
+            System.out.println("vkEndCommandBuffer failed: " + result);
+            System.exit(-1);
         }
     }
 
@@ -1287,8 +1450,6 @@ public class Vulkan {
         if (result != VK_SUCCESS) {
             System.out.println("vkQueueSubmit failed: " + result);
             System.exit(-1);
-        } else {
-            // System.out.println("vkQueueSubmit succeeded!");
         }
     }
 
