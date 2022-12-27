@@ -93,7 +93,6 @@ import static com.brcolow.vulkanapi.vulkan_h.C_INT;
 import static com.brcolow.vulkanapi.vulkan_h.C_LONG;
 import static com.brcolow.vulkanapi.vulkan_h.C_POINTER;
 import static com.brcolow.vulkanapi.vulkan_h.C_SHORT;
-import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 import static java.lang.foreign.ValueLayout.JAVA_CHAR;
 
 public class Vulkan {
@@ -1485,15 +1484,9 @@ public class Vulkan {
         return pShaderModule;
     }
 
-    public static void copy(MemorySegment segment, byte[] bytes) {
-        var heapSegment = MemorySegment.ofArray(bytes);
-        segment.copyFrom(heapSegment);
-        segment.set(JAVA_BYTE, bytes.length, (byte)0);
-    }
-
     public static MemorySegment toCString(byte[] bytes, SegmentAllocator allocator) {
-        MemorySegment addr = allocator.allocate(bytes.length + 1);
-        copy(addr, bytes);
+        MemorySegment addr = allocator.allocate(bytes.length);
+        addr.copyFrom(MemorySegment.ofArray(bytes));
         return addr;
     }
 
