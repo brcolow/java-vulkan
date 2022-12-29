@@ -512,7 +512,7 @@ public class Vulkan {
         WNDCLASSEXW.style$set(pWindowClass, Windows_h.CS_HREDRAW() | Windows_h.CS_VREDRAW());
         WNDCLASSEXW.hInstance$set(pWindowClass, MemorySegment.NULL);
         WNDCLASSEXW.hCursor$set(pWindowClass, Windows_h.LoadCursorW(MemorySegment.NULL, Windows_h.IDC_ARROW()));
-        MemorySegment windowName = toCString("JavaVulkanWin".getBytes(StandardCharsets.UTF_16LE), arena);
+        MemorySegment windowName = copyBytes("JavaVulkanWin\0".getBytes(StandardCharsets.UTF_16LE), arena);
         WNDCLASSEXW.lpszClassName$set(pWindowClass, windowName);
         WNDCLASSEXW.cbClsExtra$set(pWindowClass, 0);
         WNDCLASSEXW.cbWndExtra$set(pWindowClass, 0);
@@ -542,7 +542,7 @@ public class Vulkan {
         }
 
         hwndMain = Windows_h.CreateWindowExW(0, windowName,
-                toCString("My Window".getBytes(StandardCharsets.UTF_16LE), arena),
+                copyBytes("My Window\0".getBytes(StandardCharsets.UTF_16LE), arena),
                 Windows_h.WS_OVERLAPPEDWINDOW(), Windows_h.CW_USEDEFAULT(), Windows_h.CW_USEDEFAULT(),
                 800, 600, MemorySegment.NULL, MemorySegment.NULL, MemorySegment.NULL, MemorySegment.NULL);
         if (hwndMain == MemorySegment.NULL) {
