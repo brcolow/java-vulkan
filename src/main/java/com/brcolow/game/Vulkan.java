@@ -354,12 +354,9 @@ public class Vulkan {
                     vkDevice, imageViews, pRenderPass, pDepthImageView);
             System.out.println("Created " + pSwapChainFramebuffers.size() + " frame buffers.");
 
-
             ImageMemoryPair textureImageMemoryPair = createTextureImage(arena, physicalDevice, vkDevice, pVkGraphicsQueue, pVkCommandPool);
             var pTextureImageView = createImageView(arena, vkDevice, vulkan_h.VK_FORMAT_R8G8B8A8_SRGB(), vulkan_h.VK_IMAGE_ASPECT_COLOR_BIT(), textureImageMemoryPair.image.get(C_POINTER, 0));
             var pTextureSampler = createTextureSampler(arena, vkDevice);
-
-            // TODO: createDepthBuffer()
 
             BufferMemoryPair indexBuffer = createIndexBuffer(arena, physicalDevice, vkDevice, pVkCommandPool, pVkGraphicsQueue, indices);
             BufferMemoryPair vertexBuffer = createVertexBuffer(arena, physicalDevice, vkDevice, pVkCommandPool, pVkGraphicsQueue, vertices);
@@ -445,7 +442,9 @@ public class Vulkan {
         }
     }
 
-    private static MemorySegment createDescriptorSets(Arena arena, MemorySegment vkDevice, MemorySegment pDescriptorSetLayout, List<MemorySegment> pSwapChainFramebuffers, MemorySegment pTextureImageView, MemorySegment pTextureSampler, MemorySegment pDescriptorPool) {
+    private static MemorySegment createDescriptorSets(Arena arena, MemorySegment vkDevice, MemorySegment pDescriptorSetLayout,
+                                                      List<MemorySegment> pSwapChainFramebuffers, MemorySegment pTextureImageView,
+                                                      MemorySegment pTextureSampler, MemorySegment pDescriptorPool) {
         var pDescriptorSetLayouts = arena.allocateArray(C_POINTER, pSwapChainFramebuffers.size());
         for (int i = 0; i < pSwapChainFramebuffers.size(); i++) {
             pDescriptorSetLayouts.setAtIndex(C_POINTER, i, pDescriptorSetLayout.get(C_POINTER, 0));
@@ -1026,8 +1025,8 @@ public class Vulkan {
         VkPipelineRasterizationStateCreateInfo.rasterizerDiscardEnable$set(pPipelineRasterizationStateInfo, vulkan_h.VK_FALSE());
         VkPipelineRasterizationStateCreateInfo.polygonMode$set(pPipelineRasterizationStateInfo, vulkan_h.VK_POLYGON_MODE_FILL());
         VkPipelineRasterizationStateCreateInfo.lineWidth$set(pPipelineRasterizationStateInfo, 1.0f);
-        VkPipelineRasterizationStateCreateInfo.cullMode$set(pPipelineRasterizationStateInfo, vulkan_h.VK_CULL_MODE_NONE());
-        VkPipelineRasterizationStateCreateInfo.frontFace$set(pPipelineRasterizationStateInfo, vulkan_h.VK_FRONT_FACE_COUNTER_CLOCKWISE());
+        VkPipelineRasterizationStateCreateInfo.cullMode$set(pPipelineRasterizationStateInfo, vulkan_h.VK_CULL_MODE_BACK_BIT());
+        VkPipelineRasterizationStateCreateInfo.frontFace$set(pPipelineRasterizationStateInfo, vulkan_h.VK_FRONT_FACE_CLOCKWISE());
 
         var pPipelineMultisampleStateInfo = VkPipelineMultisampleStateCreateInfo.allocate(arena);
         VkPipelineMultisampleStateCreateInfo.sType$set(pPipelineMultisampleStateInfo, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO());
@@ -1063,10 +1062,9 @@ public class Vulkan {
 
         var pPipelineDepthStencilStateCreateInfo = VkPipelineDepthStencilStateCreateInfo.allocate(arena);
         VkPipelineDepthStencilStateCreateInfo.sType$set(pPipelineDepthStencilStateCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO());
-        //VkPipelineDepthStencilStateCreateInfo.depthTestEnable$set(pPipelineDepthStencilStateCreateInfo, vulkan_h.VK_TRUE());
-        // VkPipelineDepthStencilStateCreateInfo.depthWriteEnable$set(pPipelineDepthStencilStateCreateInfo, vulkan_h.VK_FALSE());
-        // FIXME: VK_COMPARE_OP_LESS makes the square disappear...what is wrong with our depth buffer ?_?
-        VkPipelineDepthStencilStateCreateInfo.depthCompareOp$set(pPipelineDepthStencilStateCreateInfo, vulkan_h.VK_COMPARE_OP_GREATER());
+        VkPipelineDepthStencilStateCreateInfo.depthTestEnable$set(pPipelineDepthStencilStateCreateInfo, vulkan_h.VK_TRUE());
+        VkPipelineDepthStencilStateCreateInfo.depthWriteEnable$set(pPipelineDepthStencilStateCreateInfo, vulkan_h.VK_FALSE());
+        VkPipelineDepthStencilStateCreateInfo.depthCompareOp$set(pPipelineDepthStencilStateCreateInfo, vulkan_h.VK_COMPARE_OP_LESS());
         VkPipelineDepthStencilStateCreateInfo.depthBoundsTestEnable$set(pPipelineDepthStencilStateCreateInfo, vulkan_h.VK_FALSE());
         VkPipelineDepthStencilStateCreateInfo.stencilTestEnable$set(pPipelineDepthStencilStateCreateInfo, vulkan_h.VK_FALSE());
 
@@ -1143,7 +1141,6 @@ public class Vulkan {
 
             VkFramebufferCreateInfo.sType$set(pFramebufferCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO());
             VkFramebufferCreateInfo.renderPass$set(pFramebufferCreateInfo, pRenderPass.get(C_POINTER, 0));
-            // FIXME: Depth buffering makes our rotating square disappear!
             VkFramebufferCreateInfo.attachmentCount$set(pFramebufferCreateInfo, 2);
             VkFramebufferCreateInfo.pAttachments$set(pFramebufferCreateInfo, pAttachments);
             VkFramebufferCreateInfo.width$set(pFramebufferCreateInfo, windowWidth);
@@ -1641,9 +1638,9 @@ public class Vulkan {
         // VkClearValue* pClearValue = &pClearValues[0];
         var pClearValue = slicer.apply(0); // reference to the first VkClearValue in the array
         VkClearValue.color$slice(pClearValue).setAtIndex(C_FLOAT, 0, 0.0f);
-        VkClearValue.color$slice(pClearValue).setAtIndex(C_FLOAT, 1, 1.0f);
+        VkClearValue.color$slice(pClearValue).setAtIndex(C_FLOAT, 1, 0.0f);
         VkClearValue.color$slice(pClearValue).setAtIndex(C_FLOAT, 2, 0.0f);
-        VkClearValue.color$slice(pClearValue).setAtIndex(C_FLOAT, 3, 0.0f);
+        VkClearValue.color$slice(pClearValue).setAtIndex(C_FLOAT, 3, 1.0f);
 
         // VkClearValue* pDepthClearValue = &pClearValues[1];
         var pDepthClearValue = slicer.apply(1); // reference to the second VkClearValue in the array
@@ -1728,7 +1725,7 @@ public class Vulkan {
         // Where c = cos(angle),	s = sine(angle), and ||( x,y,z )|| = 1 (if not, the GL will normalize this vector).
         // This is rotation by an angle *around* an axis - not rotation *about* an axis as in simple yaw/pitch/roll.
         float rotationAngle = frameBufferIndex * 0.05f;
-        float[] rotationAxis = new float[] {0f, 1f, 0f};
+        float[] rotationAxis = new float[] {1f, 0f, 0f};
         // TODO: Check if needs to be normed.
         rotationAxis = Matrix.normalizeVec3FastInvSqrt(rotationAxis);
         float[] model = new float[] {
