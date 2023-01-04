@@ -7,7 +7,6 @@ import com.brcolow.vulkanapi.VkAttachmentReference;
 import com.brcolow.vulkanapi.VkBufferCopy;
 import com.brcolow.vulkanapi.VkBufferCreateInfo;
 import com.brcolow.vulkanapi.VkBufferImageCopy;
-import com.brcolow.vulkanapi.VkClearColorValue;
 import com.brcolow.vulkanapi.VkClearDepthStencilValue;
 import com.brcolow.vulkanapi.VkClearValue;
 import com.brcolow.vulkanapi.VkCommandBufferAllocateInfo;
@@ -111,7 +110,6 @@ import static com.brcolow.vulkanapi.vulkan_h.C_INT;
 import static com.brcolow.vulkanapi.vulkan_h.C_LONG;
 import static com.brcolow.vulkanapi.vulkan_h.C_POINTER;
 import static com.brcolow.vulkanapi.vulkan_h.C_SHORT;
-import static java.lang.foreign.ValueLayout.ADDRESS;
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 import static java.lang.foreign.ValueLayout.JAVA_CHAR;
 
@@ -334,12 +332,8 @@ public class Vulkan {
                     pVertShaderModule, pFragShaderModule, pVertexInputStateInfo, pRenderPass, pDescriptorSetLayout);
             var pVkCommandPool = createCommandPool(arena, graphicsQueueFamily, vkDevice);
 
-            // createDepthResources
-            // FIXME: This crashes?
-            /*
-            int depthFormat = findSupportedFormat(List.of(vulkan_h.VK_FORMAT_D32_SFLOAT(), vulkan_h.VK_FORMAT_D32_SFLOAT_S8_UINT(), vulkan_h.VK_FORMAT_D24_UNORM_S8_UINT()),
-                    arena, vkDevice, vulkan_h.VK_IMAGE_TILING_OPTIMAL(), vulkan_h.VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT());
-             */
+            depthFormat = findSupportedFormat(List.of(vulkan_h.VK_FORMAT_D32_SFLOAT(), vulkan_h.VK_FORMAT_D32_SFLOAT_S8_UINT(), vulkan_h.VK_FORMAT_D24_UNORM_S8_UINT()),
+                    physicalDevice, vulkan_h.VK_IMAGE_TILING_OPTIMAL(), vulkan_h.VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT());
             System.out.println("Found supported format: " + depthFormat);
             var depthImageMemoryPair = createImage(arena, physicalDevice, vkDevice, windowWidth, windowHeight, depthFormat,
                     vulkan_h.VK_IMAGE_TILING_OPTIMAL(),
@@ -730,6 +724,19 @@ public class Vulkan {
             var pMemoryProperties = VkPhysicalDeviceMemoryProperties.allocate(arena);
             vulkan_h.vkGetPhysicalDeviceMemoryProperties(physicalDevice, pMemoryProperties);
 
+            int[] formats = {vulkan_h.VK_FORMAT_D32_SFLOAT(), vulkan_h.VK_FORMAT_D32_SFLOAT_S8_UINT(), vulkan_h.VK_FORMAT_D24_UNORM_S8_UINT()};
+            List<Format> formatProperties = new ArrayList<>();
+            for (int format : formats) {
+                var pFormatProperties = VkFormatProperties.allocate(arena);
+                vulkan_h.vkGetPhysicalDeviceFormatProperties(physicalDevice, format, pFormatProperties);
+                System.out.println("linear tiling features: " + VkFormatProperties.linearTilingFeatures$get(pFormatProperties));
+                System.out.println("optimal tiling features: " + VkFormatProperties.optimalTilingFeatures$get(pFormatProperties));
+                formatProperties.add(new Format(format, VkFormatProperties.linearTilingFeatures$get(pFormatProperties), VkFormatProperties.optimalTilingFeatures$get(pFormatProperties)));
+            }
+
+            // vulkan_h.vkGetPhysicalDeviceFormatProperties(physicalDevice, vulkan_h.VK_FORMAT_D32_SFLOAT_S8_UINT(), pFormatProperties);
+            // vulkan_h.vkGetPhysicalDeviceFormatProperties(physicalDevice, vulkan_h.VK_FORMAT_D24_UNORM_S8_UINT(), pFormatProperties);
+
             // See how many properties the queue family of the current physical device has, then use that number to
             // get them.
             MemorySegment pQueueFamilyPropertyCount = arena.allocate(C_INT, -1);
@@ -742,7 +749,7 @@ public class Vulkan {
                     pQueueFamilyPropertyCount, pQueueFamilyProperties);
 
             physicalDevices.add(new PhysicalDevice(arena, physicalDevice, properties, features, pMemoryProperties,
-                    familyPropertyCount, pQueueFamilyProperties, pSurface));
+                    familyPropertyCount, pQueueFamilyProperties, pSurface, formatProperties));
         }
 
         for (PhysicalDevice physicalDevice : physicalDevices) {
@@ -751,14 +758,14 @@ public class Vulkan {
         return physicalDevices;
     }
 
-    private static MemorySegment createVkDevice(Arena arena, MemorySegment deviceQueueCreateInfo, QueueFamily graphicsQueueFamily) {
+    private static MemorySegment createVkDevice(Arena arena, MemorySegment pDeviceQueueCreateInfo, QueueFamily graphicsQueueFamily) {
         var physicalDeviceFeatures = VkPhysicalDeviceFeatures.allocate(arena);
 
         VkPhysicalDeviceFeatures.depthClamp$set(physicalDeviceFeatures, vulkan_h.VK_FALSE());
         VkPhysicalDeviceFeatures.depthBounds$set(physicalDeviceFeatures, vulkan_h.VK_TRUE());
         var deviceCreateInfo = VkDeviceCreateInfo.allocate(arena);
         VkDeviceCreateInfo.sType$set(deviceCreateInfo, vulkan_h.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO());
-        VkDeviceCreateInfo.pQueueCreateInfos$set(deviceCreateInfo, deviceQueueCreateInfo);
+        VkDeviceCreateInfo.pQueueCreateInfos$set(deviceCreateInfo, pDeviceQueueCreateInfo);
         VkDeviceCreateInfo.queueCreateInfoCount$set(deviceCreateInfo, 1);
         VkDeviceCreateInfo.pEnabledFeatures$set(deviceCreateInfo, physicalDeviceFeatures);
         // Newer Vulkan implementations do not distinguish between instance and device specific validation layers,
@@ -851,17 +858,16 @@ public class Vulkan {
         return pSwapChain;
     }
 
-    private static int findSupportedFormat(List<Integer> candidates, Arena arena, MemorySegment vkDevice, int tiling, int features) {
+    private static int findSupportedFormat(List<Integer> candidates, PhysicalDevice physicalDevice, int tiling, int features) {
         for (Integer candidate : candidates) {
-            System.out.println("Checking format: " + candidate);
-            var pFormatProps = VkFormatProperties.allocate(arena);
-            vulkan_h.vkGetPhysicalDeviceFormatProperties(vkDevice, candidate, pFormatProps);
-            System.out.println("linear tiling features: " + VkFormatProperties.linearTilingFeatures$get(pFormatProps));
-            System.out.println("optimal tiling features: " + VkFormatProperties.optimalTilingFeatures$get(pFormatProps));
-            if (tiling == vulkan_h.VK_IMAGE_TILING_LINEAR() && (VkFormatProperties.linearTilingFeatures$get(pFormatProps) & features) == features) {
-                return candidate;
-            } else if (tiling == vulkan_h.VK_IMAGE_TILING_OPTIMAL() && (VkFormatProperties.optimalTilingFeatures$get(pFormatProps) & features) == features) {
-                return candidate;
+            for (Format format : physicalDevice.formatProperties) {
+                if (tiling == vulkan_h.VK_IMAGE_TILING_LINEAR() && (format.linearTilingFeatures & features) == features) {
+                    System.out.println("Found supported format with linear tiling: " + format);
+                    return candidate;
+                } else if (tiling == vulkan_h.VK_IMAGE_TILING_OPTIMAL() && (format.optimalTilingFeatures & features) == features) {
+                    System.out.println("Found supported format with optimal tiling: " + format);
+                    return candidate;
+                }
             }
         }
         throw new RuntimeException("Could not find supported format from candidates: " + candidates);
@@ -1847,6 +1853,18 @@ public class Vulkan {
         return addr;
     }
 
+    private static class Format {
+        private final int format;
+        private final int linearTilingFeatures;
+        private final int optimalTilingFeatures;
+
+        private Format(int format, int linearTilingFeatures, int optimalTilingFeatures) {
+            this.format = format;
+            this.linearTilingFeatures = linearTilingFeatures;
+            this.optimalTilingFeatures = optimalTilingFeatures;
+        }
+    }
+
     private static class PhysicalDevice {
         private final Arena arena;
         private final MemorySegment physicalDevice;
@@ -1857,10 +1875,12 @@ public class Vulkan {
         private final MemorySegment physicalDeviceQueueFamilyProperties;
         private final MemorySegment surface;
         private final List<QueueFamily> queueFamilies;
+        private final List<Format> formatProperties;
 
         private PhysicalDevice(Arena arena, MemorySegment physicalDevice, MemorySegment physicalDeviceProperties,
                                MemorySegment physicalDeviceFeatures, MemorySegment physicalDeviceMemoryProperties,
-                               int numQueueFamilies, MemorySegment physicalDeviceQueueFamilyProperties, MemorySegment ppSurface) {
+                               int numQueueFamilies, MemorySegment physicalDeviceQueueFamilyProperties, MemorySegment ppSurface,
+                               List<Format> formatProperties) {
             Objects.requireNonNull(arena);
             Objects.requireNonNull(physicalDevice);
             Objects.requireNonNull(physicalDeviceProperties);
@@ -1877,7 +1897,7 @@ public class Vulkan {
             this.numQueueFamilies = numQueueFamilies;
             this.physicalDeviceQueueFamilyProperties = physicalDeviceQueueFamilyProperties;
             this.surface = ppSurface;
-
+            this.formatProperties = formatProperties;
             if (numQueueFamilies > 0) {
                 queueFamilies = new ArrayList<>();
             } else {
@@ -1895,8 +1915,7 @@ public class Vulkan {
                 MemorySegment presentSupported = arena.allocate(C_INT, -1);
 
                 var result = VkResult(vulkan_h.vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, i,
-                        ppSurface.get(C_POINTER, 0),
-                        presentSupported));
+                        ppSurface.get(C_POINTER, 0), presentSupported));
                 if (result != VK_SUCCESS) {
                     System.out.println("vkGetPhysicalDeviceSurfaceSupportKHR failed: " + result);
                 } else {
