@@ -255,46 +255,45 @@ public class Vulkan {
                     1.0f, 1.0f,         // Vertex 3, texCoord
             };
 
-            char[] indices = new char[]{
+            int[] indices = new int[]{
                     0, 1, 2, 2, 3, 0
             };
-
             // Cube
-            /*
             vertices = new float[]{
-                    -0.5f, 0.5f, -0.5f, // Vertex 0, Position
+                    -0.5f, -0.5f, -0.5f, // Vertex 0, Position
                     1.0f, 0.0f, 0.0f, // Vertex 0, Color (red)
-                    0.5f, 0.5f, -0.5f, // Vertex 1, Position
+                    1.0f, 0.0f,         // Vertex 0, texCoord
+                    -0.5f, -0.5f, 0.5f, // Vertex 1, Position
                     0.0f, 1.0f, 0.0f, // Vertex 1, Color (green)
-                    -0.5f, -0.5f, -0.5f, // Vertex 2, Position
+                    0.0f, 0.0f,         // Vertex 1, texCoord
+                    0.5f, -0.5f, 0.5f, // Vertex 2, Position
                     0.0f, 0.0f, 1.0f, // Vertex 2, Color (blue)
+                    0.0f, 1.0f,         // Vertex 2, texCoord
                     0.5f, -0.5f, -0.5f, // Vertex 3, Position
                     1.0f, 1.0f, 1.0f, // Vertex 3, Color (white)
-                    -0.5f, 0.5f, 0.5f, // Vertex 4, Position
+                    1.0f, 1.0f,         // Vertex 3, texCoord
+                    -0.5f, 0.5f, -0.5f, // Vertex 4, Position
                     1.0f, 0.0f, 1.0f, // Vertex 4, Color (magenta)
-                    0.5f, 0.5f, 0.5f, // Vertex 5, Position
+                    1.0f, 0.0f,         // Vertex 4, texCoord
+                    -0.5f, 0.5f, 0.5f, // Vertex 5, Position
                     0.5f, 0.5f, 0.5f, // Vertex 5, Color (gray)
-                    -0.5f, -0.5f, 0.5f, // Vertex 6, Position
+                    0.0f, 0.0f,         // Vertex 5, texCoord
+                    0.5f, 0.5f, 0.5f, // Vertex 6, Position
                     0.5f, 0.5f, 0.0f, // Vertex 6, Color (olive)
-                    0.5f, -0.5f, 0.5f, // Vertex 7, Position
+                    0.0f, 1.0f,         // Vertex 6, texCoord
+                    0.5f, 0.5f, -0.5f, // Vertex 7, Position
                     0.0f, 0.5f, 0.5f, // Vertex 7, Color (teal)
+                    1.0f, 1.0f,         // Vertex 7, texCoord
             };
 
-            indices = new char[]{
-                    0, 1, 2, // Side 0
-                    2, 1, 3,
-                    4, 0, 6, // Side 1
-                    6, 0, 2,
-                    7, 5, 6, // Side 2
-                    6, 5, 4,
-                    3, 1, 7, // Side 3
-                    7, 1, 5,
-                    4, 5, 0, // Side 4
-                    0, 5, 1,
-                    3, 7, 2, // Side 5
-                    2, 7, 6
+            indices = new int[]{
+                    0, 2, 3, 0, 1, 2,
+                    4, 6, 5, 4, 7, 6,
+                    5, 2, 1, 5, 6, 2,
+                    0, 7, 4, 0, 3, 7,
+                    0, 4, 1, 1, 4, 5,
+                    2, 6, 3, 3, 6, 7
             };
-             */
 
             VkVertexInputBindingDescription.stride$set(pVertexInputBindingDescription, 32); // pos + color + texcoord = 12 + 12 + 8 bytes
             VkVertexInputBindingDescription.inputRate$set(pVertexInputBindingDescription, vulkan_h.VK_VERTEX_INPUT_RATE_VERTEX());
@@ -332,14 +331,16 @@ public class Vulkan {
                     pVertShaderModule, pFragShaderModule, pVertexInputStateInfo, pRenderPass, pDescriptorSetLayout);
             var pVkCommandPool = createCommandPool(arena, graphicsQueueFamily, vkDevice);
 
-            depthFormat = findSupportedFormat(List.of(vulkan_h.VK_FORMAT_D32_SFLOAT(), vulkan_h.VK_FORMAT_D32_SFLOAT_S8_UINT(), vulkan_h.VK_FORMAT_D24_UNORM_S8_UINT()),
-                    physicalDevice, vulkan_h.VK_IMAGE_TILING_OPTIMAL(), vulkan_h.VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT());
+            depthFormat = findSupportedFormat(List.of(vulkan_h.VK_FORMAT_D32_SFLOAT(), vulkan_h.VK_FORMAT_D32_SFLOAT_S8_UINT(),
+                            vulkan_h.VK_FORMAT_D24_UNORM_S8_UINT()), physicalDevice, vulkan_h.VK_IMAGE_TILING_OPTIMAL(),
+                    vulkan_h.VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT());
             System.out.println("Found supported format: " + depthFormat);
             var depthImageMemoryPair = createImage(arena, physicalDevice, vkDevice, windowWidth, windowHeight, depthFormat,
                     vulkan_h.VK_IMAGE_TILING_OPTIMAL(),
                     vulkan_h.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT(),
                     vulkan_h.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT());
-            var pDepthImageView = createImageView(arena, vkDevice, depthFormat, vulkan_h.VK_IMAGE_ASPECT_DEPTH_BIT(), depthImageMemoryPair.image.get(C_POINTER, 0));
+            var pDepthImageView = createImageView(arena, vkDevice, depthFormat, vulkan_h.VK_IMAGE_ASPECT_DEPTH_BIT(),
+                    depthImageMemoryPair.image.get(C_POINTER, 0));
 
             transitionImageLayout(arena, pVkCommandPool, vkDevice, pVkGraphicsQueue, depthImageMemoryPair.image,
                     depthFormat, vulkan_h.VK_IMAGE_LAYOUT_UNDEFINED(), vulkan_h.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL());
@@ -349,7 +350,8 @@ public class Vulkan {
             System.out.println("Created " + pSwapChainFramebuffers.size() + " frame buffers.");
 
             ImageMemoryPair textureImageMemoryPair = createTextureImage(arena, physicalDevice, vkDevice, pVkGraphicsQueue, pVkCommandPool);
-            var pTextureImageView = createImageView(arena, vkDevice, vulkan_h.VK_FORMAT_R8G8B8A8_SRGB(), vulkan_h.VK_IMAGE_ASPECT_COLOR_BIT(), textureImageMemoryPair.image.get(C_POINTER, 0));
+            var pTextureImageView = createImageView(arena, vkDevice, vulkan_h.VK_FORMAT_R8G8B8A8_SRGB(),
+                    vulkan_h.VK_IMAGE_ASPECT_COLOR_BIT(), textureImageMemoryPair.image.get(C_POINTER, 0));
             var pTextureSampler = createTextureSampler(arena, vkDevice);
 
             BufferMemoryPair indexBuffer = createIndexBuffer(arena, physicalDevice, vkDevice, pVkCommandPool, pVkGraphicsQueue, indices);
@@ -728,14 +730,10 @@ public class Vulkan {
             List<Format> formatProperties = new ArrayList<>();
             for (int format : formats) {
                 var pFormatProperties = VkFormatProperties.allocate(arena);
-                vulkan_h.vkGetPhysicalDeviceFormatProperties(physicalDevice, format, pFormatProperties);
-                System.out.println("linear tiling features: " + VkFormatProperties.linearTilingFeatures$get(pFormatProperties));
-                System.out.println("optimal tiling features: " + VkFormatProperties.optimalTilingFeatures$get(pFormatProperties));
-                formatProperties.add(new Format(format, VkFormatProperties.linearTilingFeatures$get(pFormatProperties), VkFormatProperties.optimalTilingFeatures$get(pFormatProperties)));
+                vulkan_h.vkGetPhysicalDeviceFormatProperties(physicalDevice, format, pFormatProperties);;
+                formatProperties.add(new Format(format, VkFormatProperties.linearTilingFeatures$get(pFormatProperties),
+                        VkFormatProperties.optimalTilingFeatures$get(pFormatProperties)));
             }
-
-            // vulkan_h.vkGetPhysicalDeviceFormatProperties(physicalDevice, vulkan_h.VK_FORMAT_D32_SFLOAT_S8_UINT(), pFormatProperties);
-            // vulkan_h.vkGetPhysicalDeviceFormatProperties(physicalDevice, vulkan_h.VK_FORMAT_D24_UNORM_S8_UINT(), pFormatProperties);
 
             // See how many properties the queue family of the current physical device has, then use that number to
             // get them.
@@ -1686,7 +1684,7 @@ public class Vulkan {
         // View matrix (camera).
         // We use a simple translation matrix to put the camera at camPos.
         // TODO: Use a lookAt matrix to do something similar to: glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-        float[] camPos = new float[]{ 0.f, 0.f, -2f };
+        float[] camPos = new float[]{ 0.f, 0.f, 2f };
         float[] view = new float[] {
                 1f, 0f, 0f, camPos[0],
                 0f, 1f, 0f, camPos[1],
@@ -1708,17 +1706,16 @@ public class Vulkan {
         float fieldOfViewY = 1.0472f; // 60 degrees in radians
         float aspectRatio =  (float) windowWidth / windowHeight;
         float zNear = 0.1f;
-        float zFar = 100f;
+        float zFar = 10f;
 
         float tanHalfFov = (float) Math.tan(fieldOfViewY / 2f);
 
         float[] projection = new float[] {
                 1f / (aspectRatio * tanHalfFov), 0f, 0f, 0f,
                 0f, -1f / tanHalfFov, 0f, 0f,
-                0f, 0f,  zFar / (zNear - zFar), -(zFar * zNear) / (zFar - zNear),
-                0f, 0f, -1f, 0f
+                0f, 0f, zFar / (zNear - zFar), -(zFar * zNear) / (zFar - zNear),
+                0f, 0f, 1f, 0f
         };
-
         // Model matrix.
         // glm::mat4 model = glm::rotate(glm::mat4{ 1.0f }, glm::radians(_frameNumber * 0.4f), glm::vec3(0, 1, 0));
         //        ( xx(1-c)+c	xy(1-c)-zs  xz(1-c)+ys	 0  )
@@ -1731,7 +1728,7 @@ public class Vulkan {
         // Where c = cos(angle),	s = sine(angle), and ||( x,y,z )|| = 1 (if not, the GL will normalize this vector).
         // This is rotation by an angle *around* an axis - not rotation *about* an axis as in simple yaw/pitch/roll.
         float rotationAngle = frameBufferIndex * 0.05f;
-        float[] rotationAxis = new float[] {1f, 0f, 0f};
+        float[] rotationAxis = new float[] {0f, 0f, 1f};
         // TODO: Check if needs to be normed.
         rotationAxis = Matrix.normalizeVec3FastInvSqrt(rotationAxis);
         float[] model = new float[] {
@@ -1751,6 +1748,7 @@ public class Vulkan {
         };
 
         float[] vm = Matrix.mul_4x4_256(view, model);
+        float[] pv = Matrix.mul_4x4_256(projection, view);
         float[] pvm = Matrix.mul_4x4_256(projection, vm);
         var pValues = arena.allocateArray(C_FLOAT, pvm.length);
         for (int i = 0; i < pvm.length; i++) {
